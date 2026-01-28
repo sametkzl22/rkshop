@@ -619,77 +619,288 @@ class Game {
     }
 
     drawFloor() {
-        this.ctx.fillStyle = COLORS.floor;
-        this.ctx.fillRect(0, 300, CANVAS_WIDTH, 300);
+        const ctx = this.ctx;
 
-        this.ctx.fillStyle = COLORS.floorTile;
-        for (let x = 0; x < CANVAS_WIDTH; x += 60) {
-            for (let y = 300; y < CANVAS_HEIGHT; y += 60) {
-                if ((x / 60 + y / 60) % 2 === 0) {
-                    this.ctx.fillRect(x, y, 60, 60);
-                }
+        // Main floor base
+        ctx.fillStyle = '#B8A080';
+        ctx.fillRect(0, 280, CANVAS_WIDTH, 320);
+
+        // Perspective floor tiles (smaller near top, larger near bottom)
+        const tileRows = 8;
+        for (let row = 0; row < tileRows; row++) {
+            const yStart = 280 + row * 40;
+            const tileHeight = 35 + row * 2;
+            const tilesPerRow = 12 - row;
+            const tileWidth = CANVAS_WIDTH / tilesPerRow;
+
+            for (let col = 0; col < tilesPerRow; col++) {
+                const xPos = col * tileWidth;
+                const isLight = (row + col) % 2 === 0;
+
+                ctx.fillStyle = isLight ? '#C9B896' : '#B8A785';
+                ctx.fillRect(xPos, yStart, tileWidth + 1, tileHeight + 1);
+
+                // Tile grout lines
+                ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(xPos, yStart, tileWidth, tileHeight);
+            }
+        }
+
+        // Floor shadow near counter
+        const shadowGrad = ctx.createLinearGradient(150, 380, 430, 380);
+        shadowGrad.addColorStop(0, 'rgba(0,0,0,0)');
+        shadowGrad.addColorStop(0.3, 'rgba(0,0,0,0.15)');
+        shadowGrad.addColorStop(0.7, 'rgba(0,0,0,0.15)');
+        shadowGrad.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = shadowGrad;
+        ctx.fillRect(150, 375, 280, 30);
+    }
+
+    drawBackShelves() {
+        const ctx = this.ctx;
+
+        // Left wall shelving unit (isometric)
+        this.drawIsometricShelfUnit(0, 50, 80, 230, true);
+
+        // Back wall shelving (main)
+        ctx.fillStyle = '#E8E8E8';
+        ctx.fillRect(80, 40, 640, 220);
+
+        // Shelf unit depth (top face)
+        ctx.fillStyle = '#F5F5F5';
+        ctx.fillRect(80, 35, 640, 8);
+
+        // Individual shelves with depth
+        for (let i = 0; i < 5; i++) {
+            const shelfY = 55 + i * 42;
+
+            // Shelf top surface
+            ctx.fillStyle = '#D0D0D0';
+            ctx.fillRect(85, shelfY + 32, 630, 6);
+
+            // Shelf front edge
+            ctx.fillStyle = '#B8B8B8';
+            ctx.fillRect(85, shelfY + 38, 630, 3);
+
+            // Products on this shelf
+            this.drawProducts(90, shelfY, 620, i);
+        }
+
+        // Right wall shelving unit (isometric)
+        this.drawIsometricShelfUnit(720, 50, 80, 230, false);
+    }
+
+    drawIsometricShelfUnit(x, y, w, h, isLeft) {
+        const ctx = this.ctx;
+        const depth = 15;
+
+        // Main face
+        ctx.fillStyle = '#E0E0E0';
+        ctx.fillRect(x, y, w, h);
+
+        // Side face (2.5D depth)
+        ctx.fillStyle = '#C8C8C8';
+        if (isLeft) {
+            // Right side visible
+            ctx.beginPath();
+            ctx.moveTo(x + w, y);
+            ctx.lineTo(x + w + depth, y - depth);
+            ctx.lineTo(x + w + depth, y + h - depth);
+            ctx.lineTo(x + w, y + h);
+            ctx.closePath();
+            ctx.fill();
+        } else {
+            // Left side visible
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+            ctx.lineTo(x - depth, y - depth);
+            ctx.lineTo(x - depth, y + h - depth);
+            ctx.lineTo(x, y + h);
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        // Products on side shelf
+        const sideColors = ['#E74C3C', '#F1C40F', '#2ECC71', '#3498DB', '#9B59B6'];
+        for (let row = 0; row < 4; row++) {
+            for (let col = 0; col < 2; col++) {
+                const px = x + 10 + col * 30;
+                const py = y + 15 + row * 52;
+                ctx.fillStyle = sideColors[(row + col) % sideColors.length];
+                ctx.fillRect(px, py, 25, 40);
+                // Highlight
+                ctx.fillStyle = 'rgba(255,255,255,0.25)';
+                ctx.fillRect(px, py, 25, 10);
             }
         }
     }
 
-    drawBackShelves() {
-        this.ctx.fillStyle = COLORS.shelf;
-        this.ctx.fillRect(50, 50, 700, 200);
-
-        for (let i = 0; i < 4; i++) {
-            const y = 70 + i * 45;
-            this.ctx.fillStyle = COLORS.shelfShadow;
-            this.ctx.fillRect(50, y + 35, 700, 8);
-            this.drawProducts(60, y, 680, i);
-        }
-    }
-
     drawProducts(x, y, width, row) {
-        const colors = [
-            ['#E74C3C', '#E67E22', '#F1C40F', '#2ECC71', '#3498DB', '#9B59B6'],
-            ['#1ABC9C', '#E91E63', '#FF5722', '#795548', '#607D8B', '#FFEB3B'],
-            ['#4CAF50', '#2196F3', '#FF9800', '#9C27B0', '#00BCD4', '#8BC34A'],
-            ['#F44336', '#673AB7', '#03A9F4', '#4CAF50', '#FFC107', '#FF5722']
+        const ctx = this.ctx;
+
+        // Different product types per row
+        const productTypes = [
+            { colors: ['#E74C3C', '#C0392B'], w: 22, h: 28, hasLabel: true },  // Canned goods
+            { colors: ['#E67E22', '#D35400'], w: 20, h: 32, hasLabel: true },  // Boxes
+            { colors: ['#F1C40F', '#F39C12'], w: 18, h: 26, hasLabel: false }, // Bags
+            { colors: ['#2ECC71', '#27AE60'], w: 24, h: 30, hasLabel: true },  // Jars
+            { colors: ['#3498DB', '#2980B9'], w: 20, h: 28, hasLabel: true }   // Bottles
         ];
 
-        const rowColors = colors[row % colors.length];
-        const productWidth = 25;
-        const gap = 5;
+        const type = productTypes[row % productTypes.length];
+        const colorSets = [
+            ['#E74C3C', '#E67E22', '#F1C40F', '#2ECC71', '#3498DB', '#9B59B6', '#1ABC9C'],
+            ['#E91E63', '#FF5722', '#795548', '#607D8B', '#FFEB3B', '#4CAF50', '#00BCD4'],
+            ['#673AB7', '#03A9F4', '#8BC34A', '#FF9800', '#9C27B0', '#F44336', '#2196F3']
+        ];
 
-        for (let i = 0; i < 22; i++) {
-            const px = x + i * (productWidth + gap);
+        const rowColors = colorSets[row % colorSets.length];
+        const gap = 4;
+        const itemsCount = Math.floor(width / (type.w + gap));
+
+        for (let i = 0; i < itemsCount; i++) {
+            const px = x + i * (type.w + gap);
             const color = rowColors[i % rowColors.length];
-            this.ctx.fillStyle = color;
-            this.ctx.fillRect(px, y, productWidth, 30);
-            this.ctx.fillStyle = 'rgba(255,255,255,0.3)';
-            this.ctx.fillRect(px, y, productWidth, 8);
+
+            // Product body
+            ctx.fillStyle = color;
+            ctx.fillRect(px, y, type.w, type.h);
+
+            // Highlight (top)
+            ctx.fillStyle = 'rgba(255,255,255,0.35)';
+            ctx.fillRect(px, y, type.w, 6);
+
+            // Shadow (bottom)
+            ctx.fillStyle = 'rgba(0,0,0,0.15)';
+            ctx.fillRect(px, y + type.h - 4, type.w, 4);
+
+            // Label stripe
+            if (type.hasLabel && i % 2 === 0) {
+                ctx.fillStyle = 'rgba(255,255,255,0.6)';
+                ctx.fillRect(px + 2, y + type.h / 2 - 4, type.w - 4, 8);
+            }
         }
     }
 
     drawCounter() {
-        this.ctx.fillStyle = COLORS.counter;
-        this.ctx.fillRect(150, 280, 280, 100);
-        this.ctx.fillStyle = COLORS.counterTop;
-        this.ctx.fillRect(145, 270, 290, 20);
+        const ctx = this.ctx;
 
-        // Laptop on counter
-        this.ctx.fillStyle = '#1a1a1a';
-        this.ctx.fillRect(180, 250, 80, 50);
-        this.ctx.fillStyle = this.shopkeeper.state === ShopkeeperState.STREAMING ? '#3498DB' : '#333';
-        this.ctx.fillRect(185, 255, 70, 35);
+        // Counter shadow on floor
+        ctx.fillStyle = 'rgba(0,0,0,0.2)';
+        ctx.fillRect(160, 385, 270, 20);
 
-        // "LIVE" when streaming
-        if (this.shopkeeper.state === ShopkeeperState.STREAMING) {
-            this.ctx.fillStyle = '#EF4444';
-            this.ctx.fillRect(190, 260, 25, 10);
-            this.ctx.fillStyle = '#fff';
-            this.ctx.font = '6px "Press Start 2P"';
-            this.ctx.fillText('LIVE', 192, 268);
+        // Counter front face (2.5D)
+        ctx.fillStyle = '#704020';
+        ctx.fillRect(150, 290, 280, 95);
+
+        // Wood grain lines on front
+        ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+        ctx.lineWidth = 1;
+        for (let i = 0; i < 6; i++) {
+            ctx.beginPath();
+            ctx.moveTo(150, 305 + i * 14);
+            ctx.lineTo(430, 305 + i * 14);
+            ctx.stroke();
         }
 
+        // Counter top surface
+        ctx.fillStyle = '#8B5A2B';
+        ctx.fillRect(145, 270, 295, 25);
+
+        // Counter top highlight
+        ctx.fillStyle = '#A0703B';
+        ctx.fillRect(145, 270, 295, 8);
+
+        // Counter depth edge (right side - 2.5D)
+        ctx.fillStyle = '#5A3A1A';
+        ctx.beginPath();
+        ctx.moveTo(430, 270);
+        ctx.lineTo(445, 260);
+        ctx.lineTo(445, 375);
+        ctx.lineTo(430, 385);
+        ctx.closePath();
+        ctx.fill();
+
         // Cash register
-        this.ctx.fillStyle = '#1a1a1a';
-        this.ctx.fillRect(350, 250, 60, 40);
+        this.drawCashRegister(355, 248);
+
+        // Laptop with glow effect
+        this.drawLaptopWithGlow(185, 248);
+    }
+
+    drawCashRegister(x, y) {
+        const ctx = this.ctx;
+
+        // Register body
+        ctx.fillStyle = '#1a1a1a';
+        ctx.fillRect(x, y, 65, 45);
+
+        // Screen
+        ctx.fillStyle = '#2a4a2a';
+        ctx.fillRect(x + 5, y + 5, 40, 18);
+
+        // Keypad
+        ctx.fillStyle = '#333';
+        ctx.fillRect(x + 5, y + 28, 55, 12);
+
+        // Keys
+        for (let i = 0; i < 5; i++) {
+            ctx.fillStyle = '#555';
+            ctx.fillRect(x + 8 + i * 10, y + 30, 8, 8);
+        }
+    }
+
+    drawLaptopWithGlow(x, y) {
+        const ctx = this.ctx;
+        const isStreaming = this.shopkeeper.state === ShopkeeperState.STREAMING;
+
+        // GREEN GLOW EFFECT when streaming
+        if (isStreaming) {
+            ctx.save();
+            const glowGrad = ctx.createRadialGradient(
+                x + 40, y + 25, 10,
+                x + 40, y - 20, 150
+            );
+            glowGrad.addColorStop(0, 'rgba(80, 255, 120, 0.4)');
+            glowGrad.addColorStop(0.3, 'rgba(60, 220, 100, 0.25)');
+            glowGrad.addColorStop(0.6, 'rgba(40, 180, 80, 0.1)');
+            glowGrad.addColorStop(1, 'rgba(0, 100, 50, 0)');
+
+            ctx.fillStyle = glowGrad;
+            ctx.beginPath();
+            ctx.ellipse(x + 40, y - 30, 120, 100, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+
+        // Laptop base
+        ctx.fillStyle = '#2C2C2C';
+        ctx.fillRect(x, y + 35, 80, 12);
+
+        // Laptop screen backing
+        ctx.fillStyle = '#1a1a1a';
+        ctx.fillRect(x + 5, y, 70, 40);
+
+        // Laptop screen
+        ctx.fillStyle = isStreaming ? '#2ecc71' : '#333';
+        ctx.fillRect(x + 8, y + 3, 64, 34);
+
+        if (isStreaming) {
+            // Twitch/Kick style purple bar
+            ctx.fillStyle = '#9146FF';
+            ctx.fillRect(x + 10, y + 6, 40, 10);
+            ctx.fillStyle = '#fff';
+            ctx.font = '6px "Press Start 2P"';
+            ctx.textAlign = 'left';
+            ctx.fillText('KICK', x + 12, y + 13);
+
+            // Viewer count
+            ctx.fillStyle = '#ccc';
+            ctx.font = '5px "Press Start 2P"';
+            const viewers = 142 + Math.floor(Math.sin(this.frameCount * 0.02) * 20);
+            ctx.fillText(`${viewers}`, x + 10, y + 32);
+        }
     }
 
     drawDisplayShelves() {
@@ -826,48 +1037,154 @@ class Game {
         const ctx = this.ctx;
         const x = this.shopkeeper.x;
         const y = this.shopkeeper.y;
+        const scale = 1.3; // Larger sprite
+        const s = scale;
+
+        // Shadow
+        ctx.fillStyle = 'rgba(0,0,0,0.2)';
+        ctx.beginPath();
+        ctx.ellipse(x, y + 165 * s, 35 * s, 10 * s, 0, 0, Math.PI * 2);
+        ctx.fill();
 
         // Jacket
         ctx.fillStyle = COLORS.jacket;
-        ctx.fillRect(x - 30, y + 50, 60, 70);
+        ctx.fillRect(x - 35 * s, y + 55 * s, 70 * s, 80 * s);
+
+        // Jacket lapels (darker sides)
+        ctx.fillStyle = '#5A3A1A';
+        ctx.fillRect(x - 35 * s, y + 55 * s, 8 * s, 80 * s);
+        ctx.fillRect(x + 27 * s, y + 55 * s, 8 * s, 80 * s);
 
         // Striped shirt
         const stripeColors = [COLORS.shirtRed, COLORS.shirtWhite, COLORS.shirtBlue];
-        for (let i = 0; i < 6; i++) {
+        for (let i = 0; i < 7; i++) {
             ctx.fillStyle = stripeColors[i % 3];
-            ctx.fillRect(x - 15, y + 50 + i * 10, 30, 10);
+            ctx.fillRect(x - 18 * s, y + 55 * s + i * 11 * s, 36 * s, 11 * s);
         }
 
         // Head
         ctx.fillStyle = COLORS.skin;
-        ctx.fillRect(x - 20, y, 40, 45);
+        ctx.fillRect(x - 22 * s, y, 44 * s, 52 * s);
 
-        // Hair
+        // Hair (messy top)
         ctx.fillStyle = COLORS.beard;
-        ctx.fillRect(x - 22, y - 5, 44, 15);
+        ctx.fillRect(x - 25 * s, y - 8 * s, 50 * s, 18 * s);
+
+        // Side hair
+        ctx.fillRect(x - 27 * s, y - 5 * s, 8 * s, 35 * s);
+        ctx.fillRect(x + 19 * s, y - 5 * s, 8 * s, 35 * s);
 
         // Beard
-        ctx.fillRect(x - 18, y + 25, 36, 25);
+        ctx.fillRect(x - 20 * s, y + 28 * s, 40 * s, 28 * s);
 
-        // Glasses
+        // Glasses frames
         ctx.fillStyle = COLORS.glasses;
-        ctx.fillRect(x - 18, y + 10, 15, 10);
-        ctx.fillRect(x + 3, y + 10, 15, 10);
-        ctx.fillStyle = '#333';
-        ctx.fillRect(x - 15, y + 13, 9, 5);
-        ctx.fillRect(x + 6, y + 13, 9, 5);
+        ctx.strokeStyle = COLORS.glasses;
+        ctx.lineWidth = 2 * s;
+        ctx.fillRect(x - 20 * s, y + 12 * s, 17 * s, 12 * s);
+        ctx.fillRect(x + 3 * s, y + 12 * s, 17 * s, 12 * s);
 
-        // State indicator
-        const stateText = this.shopkeeper.state === ShopkeeperState.STREAMING ? '📺' : '👀';
-        ctx.font = '16px Arial';
+        // Glasses bridge
+        ctx.beginPath();
+        ctx.moveTo(x - 3 * s, y + 16 * s);
+        ctx.lineTo(x + 3 * s, y + 16 * s);
+        ctx.stroke();
+
+        // Glasses lenses (dark)
+        ctx.fillStyle = '#222';
+        ctx.fillRect(x - 17 * s, y + 15 * s, 11 * s, 6 * s);
+        ctx.fillRect(x + 6 * s, y + 15 * s, 11 * s, 6 * s);
+
+        // Headphones (when streaming)
+        if (this.shopkeeper.state === ShopkeeperState.STREAMING) {
+            ctx.fillStyle = '#1a1a1a';
+            // Headband
+            ctx.beginPath();
+            ctx.arc(x, y - 5 * s, 28 * s, Math.PI, 0);
+            ctx.lineWidth = 6 * s;
+            ctx.strokeStyle = '#333';
+            ctx.stroke();
+            // Ear cups
+            ctx.fillStyle = '#1a1a1a';
+            ctx.fillRect(x - 32 * s, y + 5 * s, 12 * s, 22 * s);
+            ctx.fillRect(x + 20 * s, y + 5 * s, 12 * s, 22 * s);
+            // Ear cup cushions
+            ctx.fillStyle = '#444';
+            ctx.fillRect(x - 30 * s, y + 8 * s, 8 * s, 16 * s);
+            ctx.fillRect(x + 22 * s, y + 8 * s, 8 * s, 16 * s);
+        }
+
+        // Jeans
+        ctx.fillStyle = COLORS.jeans;
+        ctx.fillRect(x - 28 * s, y + 135 * s, 25 * s, 35 * s);
+        ctx.fillRect(x + 3 * s, y + 135 * s, 25 * s, 35 * s);
+
+        // SPEECH BUBBLE ("Streaming LIVE!")
+        if (this.shopkeeper.state === ShopkeeperState.STREAMING) {
+            this.drawSpeechBubble(x + 80, y - 20);
+        }
+    }
+
+    drawSpeechBubble(x, y) {
+        const ctx = this.ctx;
+
+        // Bubble body
+        ctx.fillStyle = '#FFFFFF';
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 3;
+
+        // Rounded rectangle
+        const w = 110;
+        const h = 50;
+        const r = 8;
+
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.lineTo(x + w - r, y);
+        ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+        ctx.lineTo(x + w, y + h - r);
+        ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+        ctx.lineTo(x + r, y + h);
+        ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+        ctx.lineTo(x, y + r);
+        ctx.quadraticCurveTo(x, y, x + r, y);
+        ctx.closePath();
+
+        ctx.fill();
+        ctx.stroke();
+
+        // Tail (pointing to shopkeeper)
+        ctx.fillStyle = '#FFFFFF';
+        ctx.beginPath();
+        ctx.moveTo(x + 5, y + h - 5);
+        ctx.lineTo(x - 15, y + h + 15);
+        ctx.lineTo(x + 20, y + h - 5);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // Cover stroke inside bubble where tail meets
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(x + 6, y + h - 6, 16, 8);
+
+        // Text: "Streaming"
+        ctx.fillStyle = '#000';
+        ctx.font = '10px "Press Start 2P"';
         ctx.textAlign = 'center';
-        ctx.fillText(stateText, x, y - 15);
+        ctx.fillText('Streaming', x + w / 2, y + 22);
+
+        // Text: "LIVE!" in red
+        ctx.fillStyle = '#EF4444';
+        ctx.font = 'bold 14px "Press Start 2P"';
+        ctx.fillText('LIVE!', x + w / 2, y + 40);
     }
 
     drawPlayer() {
         const ctx = this.ctx;
         const p = this.player;
         const bob = Math.sin(this.frameCount * 0.2) * (p.isMoving ? 3 : 1);
+        const scale = 1.4; // Larger sprite
+        const s = scale;
 
         ctx.save();
         if (p.facingLeft) {
@@ -878,38 +1195,87 @@ class Game {
         const x = p.x;
         const y = p.y;
 
-        // Body
+        // Shadow
+        ctx.fillStyle = 'rgba(0,0,0,0.2)';
+        ctx.beginPath();
+        ctx.ellipse(x, y + 78 * s + bob, 18 * s, 6 * s, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Body (shirt)
         ctx.fillStyle = COLORS.kidShirt;
-        ctx.fillRect(x - 12, y + 20 + bob, 24, 30);
+        ctx.fillRect(x - 14 * s, y + 22 * s + bob, 28 * s, 35 * s);
+
+        // Shirt collar/details
+        ctx.fillStyle = '#2980B9';
+        ctx.fillRect(x - 14 * s, y + 22 * s + bob, 28 * s, 6 * s);
 
         // Head
         ctx.fillStyle = COLORS.kidSkin;
-        ctx.fillRect(x - 10, y + bob, 20, 20);
+        ctx.fillRect(x - 12 * s, y + bob, 24 * s, 24 * s);
 
-        // Hair
+        // Ears
+        ctx.fillRect(x - 15 * s, y + 8 * s + bob, 5 * s, 8 * s);
+        ctx.fillRect(x + 10 * s, y + 8 * s + bob, 5 * s, 8 * s);
+
+        // Hair (messy kid hair)
         ctx.fillStyle = COLORS.kidHair;
-        ctx.fillRect(x - 10, y - 5 + bob, 20, 10);
+        ctx.fillRect(x - 13 * s, y - 6 * s + bob, 26 * s, 14 * s);
+        // Hair spikes
+        ctx.fillRect(x - 10 * s, y - 10 * s + bob, 6 * s, 6 * s);
+        ctx.fillRect(x + 2 * s, y - 8 * s + bob, 8 * s, 5 * s);
 
         // Eyes
         ctx.fillStyle = '#000';
         if (p.state === PlayerState.STEALING) {
-            // Concentrated eyes
-            ctx.fillRect(x - 5, y + 10 + bob, 4, 2);
-            ctx.fillRect(x + 2, y + 10 + bob, 4, 2);
+            // Sneaky squint eyes
+            ctx.fillRect(x - 7 * s, y + 12 * s + bob, 6 * s, 2 * s);
+            ctx.fillRect(x + 2 * s, y + 12 * s + bob, 6 * s, 2 * s);
         } else {
-            ctx.fillRect(x - 5, y + 8 + bob, 3, 3);
-            ctx.fillRect(x + 3, y + 8 + bob, 3, 3);
+            // Normal eyes
+            ctx.fillRect(x - 6 * s, y + 10 * s + bob, 4 * s, 4 * s);
+            ctx.fillRect(x + 3 * s, y + 10 * s + bob, 4 * s, 4 * s);
+            // Eye shine
+            ctx.fillStyle = '#fff';
+            ctx.fillRect(x - 5 * s, y + 11 * s + bob, 2 * s, 2 * s);
+            ctx.fillRect(x + 4 * s, y + 11 * s + bob, 2 * s, 2 * s);
+        }
+
+        // Mouth (mischievous grin when stealing)
+        ctx.fillStyle = '#000';
+        if (p.state === PlayerState.STEALING) {
+            ctx.fillRect(x - 4 * s, y + 18 * s + bob, 9 * s, 2 * s);
         }
 
         // Pants
         ctx.fillStyle = COLORS.kidPants;
-        ctx.fillRect(x - 10, y + 50 + bob, 9, 20);
-        ctx.fillRect(x + 1, y + 50 + bob, 9, 20);
+        ctx.fillRect(x - 12 * s, y + 57 * s + bob, 11 * s, 22 * s);
+        ctx.fillRect(x + 1 * s, y + 57 * s + bob, 11 * s, 22 * s);
 
-        // Stealing hands
+        // Shoes
+        ctx.fillStyle = '#1a1a1a';
+        ctx.fillRect(x - 14 * s, y + 77 * s + bob, 12 * s, 6 * s);
+        ctx.fillRect(x + 2 * s, y + 77 * s + bob, 12 * s, 6 * s);
+
+        // Arms
+        ctx.fillStyle = COLORS.kidShirt;
+        ctx.fillRect(x - 20 * s, y + 25 * s + bob, 8 * s, 25 * s);
+        ctx.fillRect(x + 12 * s, y + 25 * s + bob, 8 * s, 25 * s);
+
+        // Hands
+        ctx.fillStyle = COLORS.kidSkin;
+        ctx.fillRect(x - 20 * s, y + 48 * s + bob, 8 * s, 8 * s);
+        ctx.fillRect(x + 12 * s, y + 48 * s + bob, 8 * s, 8 * s);
+
+        // If stealing, show hands reaching toward item
         if (p.state === PlayerState.STEALING) {
             ctx.fillStyle = COLORS.kidSkin;
-            ctx.fillRect(x + 12, y + 25 + bob, 10, 8);
+            ctx.fillRect(x + 18 * s, y + 35 * s + bob, 12 * s, 10 * s);
+
+            // Item being grabbed
+            if (p.currentZone) {
+                ctx.fillStyle = '#4A2C2A';
+                ctx.fillRect(x + 22 * s, y + 38 * s + bob, 10 * s, 14 * s);
+            }
         }
 
         ctx.restore();
@@ -917,22 +1283,21 @@ class Game {
         // Draw steal progress bar
         if (p.state === PlayerState.STEALING && p.currentZone) {
             const progress = p.stealProgress / p.stealDuration;
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-            ctx.fillRect(p.x - 20, p.y - 20, 40, 8);
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+            ctx.fillRect(p.x - 25, p.y - 25, 50, 10);
             ctx.fillStyle = COLORS.warning;
-            ctx.fillRect(p.x - 19, p.y - 19, 38 * progress, 6);
+            ctx.fillRect(p.x - 24, p.y - 24, 48 * progress, 8);
             ctx.strokeStyle = COLORS.textLight;
-            ctx.strokeRect(p.x - 20, p.y - 20, 40, 8);
+            ctx.lineWidth = 1;
+            ctx.strokeRect(p.x - 25, p.y - 25, 50, 10);
         }
 
-        // Draw inventory
+        // Draw inventory items above character
         if (p.inventory.length > 0) {
-            ctx.font = '12px Arial';
-            ctx.textAlign = 'center';
-            let invX = p.x - 15;
-            for (const item of p.inventory) {
-                ctx.fillText(item.emoji, invX, p.y + 85 + bob);
-                invX += 15;
+            for (let i = 0; i < p.inventory.length; i++) {
+                ctx.font = '14px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(p.inventory[i].emoji, p.x - 15 + i * 18, p.y - 10 + bob);
             }
         }
     }
@@ -940,92 +1305,116 @@ class Game {
     renderUI() {
         const ctx = this.ctx;
 
-        // Alert meter (top-center)
-        const meterWidth = 200;
-        const meterX = CANVAS_WIDTH / 2 - meterWidth / 2;
+        // ====== STOLEN ITEMS BOX (Top-Left) ======
+        ctx.fillStyle = 'rgba(40, 40, 50, 0.95)';
+        ctx.fillRect(10, 10, 180, 55);
+        ctx.strokeStyle = '#555';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(10, 10, 180, 55);
 
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-        ctx.fillRect(meterX - 10, 10, meterWidth + 20, 50);
-
-        // Alert label
-        ctx.fillStyle = this.alertLevel > 70 ? COLORS.danger :
-            this.alertLevel > 40 ? COLORS.warning : COLORS.safe;
-        ctx.font = '10px "Press Start 2P"';
-        ctx.textAlign = 'center';
-        ctx.fillText('⚠️ ALERT', CANVAS_WIDTH / 2, 30);
-
-        // Alert bar background
-        ctx.fillStyle = '#333';
-        ctx.fillRect(meterX, 38, meterWidth, 15);
-
-        // Alert bar fill
-        const alertColor = this.alertLevel > 70 ? COLORS.danger :
-            this.alertLevel > 40 ? COLORS.warning : COLORS.safe;
-        ctx.fillStyle = alertColor;
-        ctx.fillRect(meterX, 38, meterWidth * (this.alertLevel / this.maxAlert), 15);
-
-        // Alert percentage
+        // "Stolen Items:" label
         ctx.fillStyle = COLORS.textLight;
+        ctx.font = '10px "Press Start 2P"';
+        ctx.textAlign = 'left';
+        ctx.fillText('Stolen Items:', 20, 30);
+
+        // Chocolate icon + count
+        ctx.font = '18px Arial';
+        ctx.fillText('🍫', 25, 55);
+        ctx.fillStyle = COLORS.textLight;
+        ctx.font = '18px "Press Start 2P"';
+        const stolenCount = this.score > 0 ? Math.floor(this.score / 40) : this.player.inventory.length;
+        ctx.fillText(String(stolenCount).padStart(2, '0'), 55, 55);
+
+        // ====== ALERT LEVEL BOX (Below Stolen Items) ======
+        ctx.fillStyle = 'rgba(40, 40, 50, 0.95)';
+        ctx.fillRect(10, 75, 180, 45);
+        ctx.strokeStyle = '#555';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(10, 75, 180, 45);
+
+        // "Alert Level:" label
+        ctx.fillStyle = COLORS.textLight;
+        ctx.font = '10px "Press Start 2P"';
+        ctx.fillText('Alert Level:', 20, 92);
+
+        // Segmented alert bar
+        const barX = 20;
+        const barY = 100;
+        const barWidth = 160;
+        const barHeight = 12;
+        const segments = 10;
+        const segmentWidth = barWidth / segments;
+        const activeSegments = Math.ceil((this.alertLevel / this.maxAlert) * segments);
+
+        for (let i = 0; i < segments; i++) {
+            if (i < activeSegments) {
+                // Filled segment (red gradient)
+                const intensity = 0.5 + (i / segments) * 0.5;
+                ctx.fillStyle = `rgba(239, 68, 68, ${intensity})`;
+            } else {
+                // Empty segment
+                ctx.fillStyle = '#333';
+            }
+            ctx.fillRect(barX + i * segmentWidth, barY, segmentWidth - 2, barHeight);
+        }
+
+        // ====== INVENTORY (Bottom-Left, small) ======
+        ctx.fillStyle = 'rgba(40, 40, 50, 0.9)';
+        ctx.fillRect(10, CANVAS_HEIGHT - 50, 100, 40);
+        ctx.strokeStyle = '#555';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(10, CANVAS_HEIGHT - 50, 100, 40);
+
+        ctx.fillStyle = '#888';
         ctx.font = '8px "Press Start 2P"';
-        ctx.fillText(`${Math.floor(this.alertLevel)}%`, CANVAS_WIDTH / 2, 50);
-
-        // Score (top-left)
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-        ctx.fillRect(10, 10, 150, 40);
-        ctx.strokeStyle = COLORS.money;
-        ctx.lineWidth = 2;
-        ctx.strokeRect(10, 10, 150, 40);
-
-        ctx.fillStyle = COLORS.money;
-        ctx.font = '12px "Press Start 2P"';
-        ctx.textAlign = 'left';
-        ctx.fillText(`SKOR: ${this.score}`, 20, 38);
-
-        // Inventory display (top-right)
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-        ctx.fillRect(CANVAS_WIDTH - 160, 10, 150, 40);
-        ctx.strokeStyle = COLORS.warning;
-        ctx.lineWidth = 2;
-        ctx.strokeRect(CANVAS_WIDTH - 160, 10, 150, 40);
-
-        ctx.fillStyle = COLORS.textLight;
-        ctx.font = '10px "Press Start 2P"';
-        ctx.textAlign = 'left';
-        ctx.fillText('ÇANTA:', CANVAS_WIDTH - 150, 30);
+        ctx.fillText('ÇANTA:', 15, CANVAS_HEIGHT - 35);
 
         // Inventory slots
         for (let i = 0; i < this.player.maxInventory; i++) {
-            const slotX = CANVAS_WIDTH - 150 + i * 35 + 60;
+            const slotX = 20 + i * 28;
+            const slotY = CANVAS_HEIGHT - 28;
             ctx.strokeStyle = '#666';
-            ctx.strokeRect(slotX, 25, 25, 20);
+            ctx.strokeRect(slotX, slotY, 22, 18);
 
             if (this.player.inventory[i]) {
-                ctx.font = '14px Arial';
-                ctx.fillText(this.player.inventory[i].emoji, slotX + 5, 42);
+                ctx.font = '12px Arial';
+                ctx.fillText(this.player.inventory[i].emoji, slotX + 4, slotY + 14);
             }
         }
 
-        // Shopkeeper state timer
+        // ====== SCORE (Top-Right, small) ======
+        ctx.fillStyle = 'rgba(40, 40, 50, 0.9)';
+        ctx.fillRect(CANVAS_WIDTH - 120, 10, 110, 35);
+        ctx.strokeStyle = COLORS.money;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(CANVAS_WIDTH - 120, 10, 110, 35);
+
+        ctx.fillStyle = COLORS.money;
+        ctx.font = '10px "Press Start 2P"';
+        ctx.textAlign = 'left';
+        ctx.fillText(`SKOR:${this.score}`, CANVAS_WIDTH - 112, 33);
+
+        // ====== SHOPKEEPER STATE (Top-Right, below score) ======
         const elapsed = Date.now() - this.shopkeeper.stateTimer;
         const duration = this.shopkeeper.state === ShopkeeperState.STREAMING
             ? STREAMING_DURATION : PATROLLING_DURATION;
         const remaining = Math.ceil((duration - elapsed) / 1000);
 
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-        ctx.fillRect(10, 60, 120, 30);
+        ctx.fillStyle = 'rgba(40, 40, 50, 0.9)';
+        ctx.fillRect(CANVAS_WIDTH - 120, 50, 110, 30);
         ctx.fillStyle = this.shopkeeper.state === ShopkeeperState.STREAMING ? '#3498DB' : COLORS.danger;
         ctx.font = '8px "Press Start 2P"';
-        ctx.textAlign = 'left';
-        const stateIcon = this.shopkeeper.state === ShopkeeperState.STREAMING ? '📺' : '👀';
-        ctx.fillText(`${stateIcon} ${remaining}s`, 20, 80);
+        const stateIcon = this.shopkeeper.state === ShopkeeperState.STREAMING ? '📺' : '�';
+        ctx.fillText(`${stateIcon} ${remaining}s`, CANVAS_WIDTH - 110, 70);
 
-        // Controls hint
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-        ctx.fillRect(CANVAS_WIDTH / 2 - 120, CANVAS_HEIGHT - 35, 240, 25);
-        ctx.fillStyle = '#aaa';
-        ctx.font = '8px "Press Start 2P"';
+        // ====== CONTROLS HINT (Bottom-Center) ======
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+        ctx.fillRect(CANVAS_WIDTH / 2 - 130, CANVAS_HEIGHT - 30, 260, 22);
+        ctx.fillStyle = '#999';
+        ctx.font = '7px "Press Start 2P"';
         ctx.textAlign = 'center';
-        ctx.fillText('↑←↓→ Hareket   SPACE Çal', CANVAS_WIDTH / 2, CANVAS_HEIGHT - 18);
+        ctx.fillText('↑←↓→/WASD Hareket   SPACE Çal   R Yeniden', CANVAS_WIDTH / 2, CANVAS_HEIGHT - 14);
     }
 
     drawGameOver() {
