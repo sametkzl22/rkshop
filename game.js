@@ -12,6 +12,7 @@ const CANVAS_HEIGHT = 600;
 const GameState = {
     LOADING: 'loading',
     PLAYING: 'playing',
+    COMBAT: 'combat',
     GAME_OVER: 'gameOver',
     VICTORY: 'victory'
 };
@@ -27,6 +28,14 @@ const PlayerState = {
     STEALING: 'stealing'
 };
 
+const CombatState = {
+    IDLE: 'idle',
+    ATTACKING: 'attacking',
+    HIT: 'hit',
+    BLOCKING: 'blocking',
+    KO: 'ko'
+};
+
 // Timing constants
 const STREAMING_DURATION = 25000;  // 25 seconds streaming
 const PATROLLING_DURATION = 8000;  // 8 seconds patrolling
@@ -38,19 +47,31 @@ const ASSETS = {
     // Background
     dukkan: new Image(),
 
-    // Player sprites
+    // Player sprites - Stealth
     cocukIdle: new Image(),
     cocukStealing: new Image(),
 
-    // Shopkeeper sprites
+    // Player sprites - Combat
+    kidMeydanokuma: new Image(),
+    kidSaplama: new Image(),
+    kidDamage: new Image(),
+    kidNakavt: new Image(),
+
+    // Shopkeeper sprites - Stealth
     bekciPatrol: new Image(),
     bekciStreaming: new Image(),
+
+    // Shopkeeper sprites - Combat
+    rkKavgahazir: new Image(),
+    rkKavgavurdu: new Image(),
+    rkDamage: new Image(),
+    rkNakavt: new Image(),
 
     loaded: false
 };
 
 let assetsLoaded = 0;
-const totalAssets = 5;
+const totalAssets = 13;
 
 // ============================================
 // STEAL ZONES - Accessible lower shelf positions
@@ -419,6 +440,44 @@ class Game {
         this.frameCount = 0;
         this.lastTime = 0;
 
+        // ============================================
+        // COMBAT SYSTEM
+        // ============================================
+        this.combat = {
+            // HP
+            playerHP: 100,
+            shopkeeperHP: 100,
+            maxHP: 100,
+
+            // States
+            playerState: CombatState.IDLE,
+            shopkeeperState: CombatState.IDLE,
+
+            // Timers
+            playerAttackTimer: 0,
+            shopkeeperAttackTimer: 0,
+            hitStunTimer: 0,
+
+            // Attack cooldowns
+            playerAttackCooldown: 0,
+            shopkeeperAttackCooldown: 0,
+
+            // Damage values
+            playerDamage: 15,
+            shopkeeperDamage: 20,
+
+            // Screen effects
+            screenShake: 0,
+            flashAlpha: 0,
+
+            // FIGHT! transition
+            fightTransitionTimer: 0,
+            showFightText: false,
+
+            // Combat controls
+            keys: { j: false, k: false }
+        };
+
         this.handleKeyDown = this.handleKeyDown.bind(this);
         this.handleKeyUp = this.handleKeyUp.bind(this);
         this.gameLoop = this.gameLoop.bind(this);
@@ -442,18 +501,36 @@ class Game {
             console.error('Failed to load asset:', e.target.src);
         };
 
-        // Set up load handlers
+        // Set up load handlers - Stealth assets
         ASSETS.dukkan.onload = onLoad;
         ASSETS.cocukIdle.onload = onLoad;
         ASSETS.cocukStealing.onload = onLoad;
         ASSETS.bekciPatrol.onload = onLoad;
         ASSETS.bekciStreaming.onload = onLoad;
 
+        // Set up load handlers - Combat assets
+        ASSETS.kidMeydanokuma.onload = onLoad;
+        ASSETS.kidSaplama.onload = onLoad;
+        ASSETS.kidDamage.onload = onLoad;
+        ASSETS.kidNakavt.onload = onLoad;
+        ASSETS.rkKavgahazir.onload = onLoad;
+        ASSETS.rkKavgavurdu.onload = onLoad;
+        ASSETS.rkDamage.onload = onLoad;
+        ASSETS.rkNakavt.onload = onLoad;
+
         ASSETS.dukkan.onerror = onError;
         ASSETS.cocukIdle.onerror = onError;
         ASSETS.cocukStealing.onerror = onError;
         ASSETS.bekciPatrol.onerror = onError;
         ASSETS.bekciStreaming.onerror = onError;
+        ASSETS.kidMeydanokuma.onerror = onError;
+        ASSETS.kidSaplama.onerror = onError;
+        ASSETS.kidDamage.onerror = onError;
+        ASSETS.kidNakavt.onerror = onError;
+        ASSETS.rkKavgahazir.onerror = onError;
+        ASSETS.rkKavgavurdu.onerror = onError;
+        ASSETS.rkDamage.onerror = onError;
+        ASSETS.rkNakavt.onerror = onError;
 
         // Load assets with URL-encoded paths for Turkish characters
         ASSETS.dukkan.src = 'assets/rkd%C3%BCkkan.png';
@@ -461,6 +538,16 @@ class Game {
         ASSETS.cocukStealing.src = 'assets/kidcalarken.png';
         ASSETS.bekciPatrol.src = 'assets/rkbekci-front.png';
         ASSETS.bekciStreaming.src = 'assets/rkyay%C4%B1nda.png';
+
+        // Combat sprites
+        ASSETS.kidMeydanokuma.src = 'assets/kidmeydanokuma.png';
+        ASSETS.kidSaplama.src = 'assets/kidsaplama.png';
+        ASSETS.kidDamage.src = 'assets/kidkavgadamage.png';
+        ASSETS.kidNakavt.src = 'assets/kidnakavt.png';
+        ASSETS.rkKavgahazir.src = 'assets/rkkavgahaz%C4%B1r.png';
+        ASSETS.rkKavgavurdu.src = 'assets/rkkavgavurdu.png';
+        ASSETS.rkDamage.src = 'assets/rkdamage.png';
+        ASSETS.rkNakavt.src = 'assets/rknakavt.png';
     }
 
     setupEventListeners() {
@@ -471,6 +558,14 @@ class Game {
     handleKeyDown(e) {
         if (this.gameState === GameState.GAME_OVER || this.gameState === GameState.VICTORY) {
             if (e.key.toLowerCase() === 'r') this.restart();
+            return;
+        }
+
+        // Combat mode controls
+        if (this.gameState === GameState.COMBAT) {
+            const key = e.key.toLowerCase();
+            if (key === 'j') this.combat.keys.j = true;
+            if (key === 'k') this.combat.keys.k = true;
             return;
         }
 
@@ -485,6 +580,12 @@ class Game {
 
     handleKeyUp(e) {
         const key = e.key.toLowerCase();
+
+        // Combat mode
+        if (key === 'j') this.combat.keys.j = false;
+        if (key === 'k') this.combat.keys.k = false;
+
+        // Stealth mode
         if (key === 'arrowup' || key === 'w') this.player.keys.up = false;
         if (key === 'arrowdown' || key === 's') this.player.keys.down = false;
         if (key === 'arrowleft' || key === 'a') this.player.keys.left = false;
@@ -501,6 +602,14 @@ class Game {
         this.shopkeeper = new Shopkeeper(200, 180);
         this.chatMessages = [];
         this.addChatMessage("Yayın başladı!", 'system');
+
+        // Reset combat
+        this.combat.playerHP = 100;
+        this.combat.shopkeeperHP = 100;
+        this.combat.playerState = CombatState.IDLE;
+        this.combat.shopkeeperState = CombatState.IDLE;
+        this.combat.screenShake = 0;
+        this.combat.flashAlpha = 0;
     }
 
     addChatMessage(text, type = 'normal') {
@@ -521,6 +630,9 @@ class Game {
         } else if (this.gameState === GameState.PLAYING) {
             this.update(deltaTime);
             this.render();
+        } else if (this.gameState === GameState.COMBAT) {
+            this.updateCombat(deltaTime);
+            this.renderCombat();
         } else {
             this.render();
             this.drawEndScreen();
@@ -536,19 +648,22 @@ class Game {
         // Detection check - vision based
         if (this.shopkeeper.canSeePlayer(this.player)) {
             this.alertLevel += 0.8;
-            if (this.alertLevel >= this.maxAlert) {
-                this.gameState = GameState.GAME_OVER;
-            }
         } else {
             this.alertLevel = Math.max(0, this.alertLevel - 0.3);
         }
 
         // Noise mechanic - running without Shift increases alert during patrol
         if (this.player.isRunning && this.shopkeeper.state === ShopkeeperState.PATROLLING) {
-            this.alertLevel += 0.15;  // Slower increase from noise
-            if (this.alertLevel >= this.maxAlert) {
-                this.gameState = GameState.GAME_OVER;
-            }
+            this.alertLevel += 0.15;
+        }
+
+        // Trigger COMBAT when alert maxes out
+        if (this.alertLevel >= this.maxAlert) {
+            this.gameState = GameState.COMBAT;
+            this.combat.showFightText = true;
+            this.combat.fightTransitionTimer = 2000; // 2 second FIGHT! display
+            this.combat.playerHP = 100;
+            this.combat.shopkeeperHP = 100;
         }
 
         // Random chat
@@ -556,6 +671,98 @@ class Game {
             const msg = STEALTH_CHAT[Math.floor(Math.random() * STEALTH_CHAT.length)];
             this.addChatMessage(msg.text, msg.type);
             this.lastChatTime = Date.now();
+        }
+    }
+
+    // ============================================
+    // COMBAT SYSTEM UPDATE
+    // ============================================
+    updateCombat(deltaTime) {
+        const c = this.combat;
+
+        // FIGHT! transition timer
+        if (c.showFightText) {
+            c.fightTransitionTimer -= deltaTime;
+            if (c.fightTransitionTimer <= 0) {
+                c.showFightText = false;
+            }
+            return; // Don't process combat during transition
+        }
+
+        // Update cooldowns
+        if (c.playerAttackCooldown > 0) c.playerAttackCooldown -= deltaTime;
+        if (c.shopkeeperAttackCooldown > 0) c.shopkeeperAttackCooldown -= deltaTime;
+
+        // Update screen effects
+        if (c.screenShake > 0) c.screenShake -= deltaTime * 0.1;
+        if (c.flashAlpha > 0) c.flashAlpha -= deltaTime * 0.003;
+
+        // Reset states after animation
+        if (c.playerAttackTimer > 0) {
+            c.playerAttackTimer -= deltaTime;
+            if (c.playerAttackTimer <= 0) c.playerState = CombatState.IDLE;
+        }
+        if (c.shopkeeperAttackTimer > 0) {
+            c.shopkeeperAttackTimer -= deltaTime;
+            if (c.shopkeeperAttackTimer <= 0) c.shopkeeperState = CombatState.IDLE;
+        }
+
+        // Player attack (J key)
+        if (c.keys.j && c.playerAttackCooldown <= 0 && c.playerState === CombatState.IDLE) {
+            c.playerState = CombatState.ATTACKING;
+            c.playerAttackTimer = 300; // 300ms attack animation
+            c.playerAttackCooldown = 500; // 500ms cooldown
+
+            // Check if shopkeeper is blocking
+            if (c.shopkeeperState !== CombatState.BLOCKING) {
+                c.shopkeeperHP -= c.playerDamage;
+                c.shopkeeperState = CombatState.HIT;
+                c.shopkeeperAttackTimer = 200;
+                c.screenShake = 10;
+                c.flashAlpha = 0.5;
+            }
+        }
+
+        // Player block (K key)
+        if (c.keys.k && c.playerState === CombatState.IDLE) {
+            c.playerState = CombatState.BLOCKING;
+        } else if (!c.keys.k && c.playerState === CombatState.BLOCKING) {
+            c.playerState = CombatState.IDLE;
+        }
+
+        // Shopkeeper AI - random attacks
+        if (c.shopkeeperState === CombatState.IDLE && c.shopkeeperAttackCooldown <= 0) {
+            if (Math.random() < 0.02) { // 2% chance per frame to attack
+                c.shopkeeperState = CombatState.ATTACKING;
+                c.shopkeeperAttackTimer = 400;
+                c.shopkeeperAttackCooldown = 1000;
+
+                // Check if player is blocking
+                if (c.playerState !== CombatState.BLOCKING) {
+                    c.playerHP -= c.shopkeeperDamage;
+                    c.playerState = CombatState.HIT;
+                    c.playerAttackTimer = 200;
+                    c.screenShake = 15;
+                    c.flashAlpha = 0.7;
+                }
+            }
+        }
+
+        // Check win/lose conditions
+        if (c.shopkeeperHP <= 0) {
+            c.shopkeeperState = CombatState.KO;
+            // Player wins! Add inventory value to score
+            setTimeout(() => {
+                this.score += this.player.inventoryValue;
+                this.gameState = GameState.VICTORY;
+            }, 1500);
+        }
+
+        if (c.playerHP <= 0) {
+            c.playerState = CombatState.KO;
+            setTimeout(() => {
+                this.gameState = GameState.GAME_OVER;
+            }, 1500);
         }
     }
 
@@ -897,6 +1104,203 @@ class Game {
         ctx.fillStyle = '#888';
         ctx.font = '10px "Press Start 2P", monospace';
         ctx.fillText(`${assetsLoaded}/${totalAssets} assets`, CANVAS_WIDTH / 2, barY + barH + 25);
+    }
+
+    // ============================================
+    // COMBAT RENDERING
+    // ============================================
+    renderCombat() {
+        const ctx = this.ctx;
+        const c = this.combat;
+
+        // Apply screen shake
+        ctx.save();
+        if (c.screenShake > 0) {
+            const shakeX = (Math.random() - 0.5) * c.screenShake;
+            const shakeY = (Math.random() - 0.5) * c.screenShake;
+            ctx.translate(shakeX, shakeY);
+        }
+
+        // Dark arena background
+        ctx.fillStyle = '#1a1a2e';
+        ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+        // Draw ground line
+        ctx.strokeStyle = '#444';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(0, CANVAS_HEIGHT - 80);
+        ctx.lineTo(CANVAS_WIDTH, CANVAS_HEIGHT - 80);
+        ctx.stroke();
+
+        // Draw HP bars
+        this.drawCombatHPBars();
+
+        // Draw characters (2.5x scale)
+        this.drawCombatCharacters();
+
+        // Draw damage flash
+        if (c.flashAlpha > 0) {
+            ctx.fillStyle = `rgba(255, 0, 0, ${c.flashAlpha})`;
+            ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        }
+
+        ctx.restore();
+
+        // Draw FIGHT! transition text
+        if (c.showFightText) {
+            this.drawFightTransition();
+        }
+
+        // Draw combat controls hint
+        ctx.fillStyle = 'rgba(0,0,0,0.7)';
+        ctx.fillRect(8, CANVAS_HEIGHT - 28, 280, 22);
+        ctx.fillStyle = '#FFF';
+        ctx.font = '8px "Press Start 2P", monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText("J:Saldır  K:Blok", 14, CANVAS_HEIGHT - 12);
+    }
+
+    drawCombatHPBars() {
+        const ctx = this.ctx;
+        const c = this.combat;
+        const barW = 300;
+        const barH = 30;
+        const margin = 50;
+
+        // Player HP (left)
+        ctx.fillStyle = '#333';
+        ctx.fillRect(margin, 30, barW, barH);
+
+        const playerHPWidth = (c.playerHP / c.maxHP) * barW;
+        ctx.fillStyle = c.playerHP > 30 ? '#22C55E' : '#EF4444';
+        ctx.fillRect(margin, 30, playerHPWidth, barH);
+
+        ctx.strokeStyle = '#FFF';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(margin, 30, barW, barH);
+
+        ctx.fillStyle = '#FFF';
+        ctx.font = '12px "Press Start 2P", monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText('ÇOCUK', margin, 22);
+        ctx.fillText(`${Math.max(0, c.playerHP)}`, margin + 10, 52);
+
+        // Shopkeeper HP (right)
+        const rightX = CANVAS_WIDTH - margin - barW;
+        ctx.fillStyle = '#333';
+        ctx.fillRect(rightX, 30, barW, barH);
+
+        const shopkeeperHPWidth = (c.shopkeeperHP / c.maxHP) * barW;
+        ctx.fillStyle = c.shopkeeperHP > 30 ? '#EF4444' : '#22C55E';
+        ctx.fillRect(rightX + barW - shopkeeperHPWidth, 30, shopkeeperHPWidth, barH);
+
+        ctx.strokeStyle = '#FFF';
+        ctx.strokeRect(rightX, 30, barW, barH);
+
+        ctx.textAlign = 'right';
+        ctx.fillText('BAKKALCI', CANVAS_WIDTH - margin, 22);
+        ctx.fillText(`${Math.max(0, c.shopkeeperHP)}`, CANVAS_WIDTH - margin - 10, 52);
+    }
+
+    drawCombatCharacters() {
+        const ctx = this.ctx;
+        const c = this.combat;
+        const scale = 2.5;
+
+        // Get player sprite based on state
+        let playerImg;
+        switch (c.playerState) {
+            case CombatState.ATTACKING:
+                playerImg = ASSETS.kidSaplama;
+                break;
+            case CombatState.HIT:
+                playerImg = ASSETS.kidDamage;
+                break;
+            case CombatState.KO:
+                playerImg = ASSETS.kidNakavt;
+                break;
+            case CombatState.BLOCKING:
+                playerImg = ASSETS.kidMeydanokuma; // Use idle for block
+                break;
+            default:
+                playerImg = ASSETS.kidMeydanokuma;
+        }
+
+        // Get shopkeeper sprite based on state
+        let shopkeeperImg;
+        switch (c.shopkeeperState) {
+            case CombatState.ATTACKING:
+                shopkeeperImg = ASSETS.rkKavgavurdu;
+                break;
+            case CombatState.HIT:
+                shopkeeperImg = ASSETS.rkDamage;
+                break;
+            case CombatState.KO:
+                shopkeeperImg = ASSETS.rkNakavt;
+                break;
+            default:
+                shopkeeperImg = ASSETS.rkKavgahazir;
+        }
+
+        // Calculate dimensions maintaining aspect ratio
+        const playerBaseH = 150;
+        const playerH = playerBaseH * scale;
+        const playerW = playerImg.width ? (playerImg.width / playerImg.height) * playerH : playerH * 0.6;
+
+        const shopkeeperBaseH = 180;
+        const shopkeeperH = shopkeeperBaseH * scale;
+        const shopkeeperW = shopkeeperImg.width ? (shopkeeperImg.width / shopkeeperImg.height) * shopkeeperH : shopkeeperH * 0.7;
+
+        // Draw player (left side)
+        const playerX = 100;
+        const playerY = CANVAS_HEIGHT - 80 - playerH;
+        ctx.drawImage(playerImg, playerX, playerY, playerW, playerH);
+
+        // Draw shopkeeper (right side, flipped)
+        const shopkeeperX = CANVAS_WIDTH - 100 - shopkeeperW;
+        const shopkeeperY = CANVAS_HEIGHT - 80 - shopkeeperH;
+
+        ctx.save();
+        ctx.translate(shopkeeperX + shopkeeperW, shopkeeperY);
+        ctx.scale(-1, 1);
+        ctx.drawImage(shopkeeperImg, 0, 0, shopkeeperW, shopkeeperH);
+        ctx.restore();
+    }
+
+    drawFightTransition() {
+        const ctx = this.ctx;
+
+        // Dark overlay
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+        ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+        // FIGHT! text with pulsing effect
+        const pulse = 1 + Math.sin(this.frameCount * 0.2) * 0.1;
+
+        ctx.save();
+        ctx.translate(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
+        ctx.scale(pulse, pulse);
+
+        ctx.fillStyle = '#FF0000';
+        ctx.font = '64px "Press Start 2P", monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        // Shadow
+        ctx.shadowColor = '#000';
+        ctx.shadowBlur = 20;
+        ctx.shadowOffsetX = 5;
+        ctx.shadowOffsetY = 5;
+
+        ctx.fillText('FIGHT!', 0, 0);
+
+        // Yellow outline
+        ctx.strokeStyle = '#FFD700';
+        ctx.lineWidth = 3;
+        ctx.strokeText('FIGHT!', 0, 0);
+
+        ctx.restore();
     }
 
     drawEndScreen() {
