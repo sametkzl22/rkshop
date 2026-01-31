@@ -19,7 +19,15 @@ const GameState = {
 
 const ShopkeeperState = {
     STREAMING: 'streaming',
-    PATROLLING: 'patrolling'
+    PATROLLING: 'patrolling',
+    SERVING: 'serving'
+};
+
+const CustomerState = {
+    ENTERING: 'entering',
+    WAITING_FOR_SERVICE: 'waitingForService',
+    BEING_SERVED: 'beingServed',
+    LEAVING: 'leaving'
 };
 
 const PlayerState = {
@@ -67,11 +75,15 @@ const ASSETS = {
     rkDamage: new Image(),
     rkNakavt: new Image(),
 
+    // Customer sprites
+    manCustomer: new Image(),
+    womanCustomer: new Image(),
+
     loaded: false
 };
 
 let assetsLoaded = 0;
-const totalAssets = 13;
+const totalAssets = 15;  // 13 + 2 customer sprites
 
 // ============================================
 // STEAL ZONES - Accessible lower shelf positions
@@ -339,6 +351,17 @@ class Shopkeeper {
                 this.currentWaypoint = Math.floor(Math.random() * this.patrolWaypoints.length);
                 game.addChatMessage("Bi dk bakıyorum...", 'system');
             }
+        } else if (this.state === ShopkeeperState.SERVING) {
+            // SERVING: Zero vision - focused on customer
+            this.visionRange = 0;
+            this.visionConeAngle = 0;
+            this.showWarning = false;
+
+            // Stay at counter position while serving
+            this.x = this.startX;
+            this.y = this.startY;
+
+            // Customer class handles returning shopkeeper to STREAMING state
         } else {
             // PATROLLING: Active vision and movement
             this.visionRange = 250;
@@ -411,6 +434,120 @@ class Shopkeeper {
 }
 
 // ============================================
+// CUSTOMER CLASS - NPC with hue-rotation variety
+// ============================================
+class Customer {
+    constructor() {
+        // Random sprite selection (man or woman)
+        this.isMale = Math.random() > 0.5;
+        this.sprite = this.isMale ? ASSETS.manCustomer : ASSETS.womanCustomer;
+
+        // Random hue rotation for color variety (0-360 degrees)
+        this.colorHue = Math.floor(Math.random() * 360);
+
+        // Position and dimensions
+        this.width = 50;
+        this.height = 70;
+
+        // Start from right door (entry point)
+        this.x = 780;
+        this.y = 450;
+
+        // Target position (counter area)
+        this.counterX = 350;
+        this.counterY = 280;
+
+        // Movement
+        this.speed = 1.2;
+        this.state = CustomerState.ENTERING;
+
+        // Service timing
+        this.waitTimer = 0;
+        this.serviceTime = 3000 + Math.random() * 2000; // 3-5 seconds to serve
+
+        // Request (what they want to buy)
+        this.requestItems = ['🍫', '🍪', '🥫', '🥤', '🍿', '🍬'];
+        this.request = this.requestItems[Math.floor(Math.random() * this.requestItems.length)];
+
+        this.facingLeft = true;
+    }
+
+    update(deltaTime, game) {
+        switch (this.state) {
+            case CustomerState.ENTERING:
+                // Walk towards counter
+                const dxEnter = this.counterX - this.x;
+                const dyEnter = this.counterY - this.y;
+                const distEnter = Math.sqrt(dxEnter * dxEnter + dyEnter * dyEnter);
+
+                if (distEnter > 10) {
+                    this.x += (dxEnter / distEnter) * this.speed;
+                    this.y += (dyEnter / distEnter) * this.speed;
+                    this.facingLeft = dxEnter < 0;
+                } else {
+                    // Arrived at counter
+                    this.state = CustomerState.WAITING_FOR_SERVICE;
+                    this.waitTimer = 0;
+
+                    // Trigger shopkeeper to serve (if streaming)
+                    if (game.shopkeeper.state === ShopkeeperState.STREAMING) {
+                        game.shopkeeper.state = ShopkeeperState.SERVING;
+                        game.shopkeeper.stateTimer = 0;
+                        game.addChatMessage("Müşteri geldi!", 'system');
+                    }
+                }
+                break;
+
+            case CustomerState.WAITING_FOR_SERVICE:
+                // Wait for shopkeeper to serve
+                if (game.shopkeeper.state === ShopkeeperState.SERVING) {
+                    this.state = CustomerState.BEING_SERVED;
+                    this.waitTimer = 0;
+                }
+                break;
+
+            case CustomerState.BEING_SERVED:
+                // Being served - wait for service to complete
+                this.waitTimer += deltaTime;
+
+                if (this.waitTimer >= this.serviceTime) {
+                    // Service complete - leave
+                    this.state = CustomerState.LEAVING;
+                    game.addChatMessage("Teşekkürler!", 'system');
+
+                    // Shopkeeper returns to streaming
+                    game.shopkeeper.state = ShopkeeperState.STREAMING;
+                    game.shopkeeper.stateTimer = 0;
+                    game.shopkeeper.x = game.shopkeeper.startX;
+                    game.shopkeeper.y = game.shopkeeper.startY;
+                }
+                break;
+
+            case CustomerState.LEAVING:
+                // Walk towards exit
+                const exitX = 780;
+                const exitY = 450;
+                const dxLeave = exitX - this.x;
+                const dyLeave = exitY - this.y;
+                const distLeave = Math.sqrt(dxLeave * dxLeave + dyLeave * dyLeave);
+
+                if (distLeave > 10) {
+                    this.x += (dxLeave / distLeave) * this.speed * 1.5;
+                    this.y += (dyLeave / distLeave) * this.speed * 1.5;
+                    this.facingLeft = dxLeave < 0;
+                } else {
+                    // Customer left - remove from game
+                    this.remove = true;
+                }
+                break;
+        }
+    }
+
+    getCenterX() { return this.x + this.width / 2; }
+    getCenterY() { return this.y + this.height / 2; }
+}
+
+// ============================================
 // MAIN GAME CLASS
 // ============================================
 class Game {
@@ -439,6 +576,12 @@ class Game {
         this.lastChatTime = 0;
         this.frameCount = 0;
         this.lastTime = 0;
+
+        // Customer system
+        this.customers = [];
+        this.customerSpawnTimer = 0;
+        this.customerSpawnInterval = 15000; // Spawn customer every 15 seconds
+        this.maxCustomers = 2; // Max simultaneous customers
 
         // ============================================
         // COMBAT SYSTEM
@@ -518,6 +661,10 @@ class Game {
         ASSETS.rkDamage.onload = onLoad;
         ASSETS.rkNakavt.onload = onLoad;
 
+        // Set up load handlers - Customer assets
+        ASSETS.manCustomer.onload = onLoad;
+        ASSETS.womanCustomer.onload = onLoad;
+
         ASSETS.dukkan.onerror = onError;
         ASSETS.cocukIdle.onerror = onError;
         ASSETS.cocukStealing.onerror = onError;
@@ -531,6 +678,8 @@ class Game {
         ASSETS.rkKavgavurdu.onerror = onError;
         ASSETS.rkDamage.onerror = onError;
         ASSETS.rkNakavt.onerror = onError;
+        ASSETS.manCustomer.onerror = onError;
+        ASSETS.womanCustomer.onerror = onError;
 
         // Load assets with URL-encoded paths for Turkish characters
         ASSETS.dukkan.src = 'assets/rkd%C3%BCkkan.png';
@@ -548,6 +697,10 @@ class Game {
         ASSETS.rkKavgavurdu.src = 'assets/rkkavgavurdu.png';
         ASSETS.rkDamage.src = 'assets/rkdamage.png';
         ASSETS.rkNakavt.src = 'assets/rknakavt.png';
+
+        // Customer sprites
+        ASSETS.manCustomer.src = 'assets/mancustomer.png';
+        ASSETS.womanCustomer.src = 'assets/womancustomer.png';
     }
 
     setupEventListeners() {
@@ -602,6 +755,10 @@ class Game {
         this.shopkeeper = new Shopkeeper(200, 180);
         this.chatMessages = [];
         this.addChatMessage("Yayın başladı!", 'system');
+
+        // Reset customer system
+        this.customers = [];
+        this.customerSpawnTimer = 0;
 
         // Reset combat
         this.combat.playerHP = 100;
@@ -665,6 +822,22 @@ class Game {
             this.combat.playerHP = 100;
             this.combat.shopkeeperHP = 100;
         }
+
+        // Customer spawn system
+        this.customerSpawnTimer += deltaTime;
+        if (this.customerSpawnTimer >= this.customerSpawnInterval &&
+            this.customers.length < this.maxCustomers) {
+            this.customers.push(new Customer());
+            this.customerSpawnTimer = 0;
+        }
+
+        // Update customers
+        for (const customer of this.customers) {
+            customer.update(deltaTime, this);
+        }
+
+        // Remove customers that have left
+        this.customers = this.customers.filter(c => !c.remove);
 
         // Random chat
         if (Date.now() - this.lastChatTime > 4000 + Math.random() * 3000) {
@@ -787,6 +960,9 @@ class Game {
         // Draw shopkeeper (state-based sprite)
         this.drawShopkeeper();
 
+        // Draw customers with hue-rotation
+        this.drawCustomers();
+
         // Draw player (state-based sprite)
         this.drawPlayer();
 
@@ -859,7 +1035,7 @@ class Game {
 
         // Select sprite based on state
         let img;
-        if (s.state === ShopkeeperState.STREAMING) {
+        if (s.state === ShopkeeperState.STREAMING || s.state === ShopkeeperState.SERVING) {
             img = ASSETS.bekciStreaming;
         } else {
             img = ASSETS.bekciPatrol;
@@ -871,7 +1047,7 @@ class Game {
         const drawWidth = drawHeight * aspectRatio;
 
         // Margin-start offset for streaming sprite (rkyayında.png)
-        const marginStart = (s.state === ShopkeeperState.STREAMING) ? 45 : 0;
+        const marginStart = (s.state === ShopkeeperState.STREAMING || s.state === ShopkeeperState.SERVING) ? 45 : 0;
 
         // Draw the shopkeeper sprite with margin offset
         ctx.drawImage(
@@ -900,6 +1076,71 @@ class Game {
             ctx.fillText('!', warningX, warningY);
             ctx.shadowBlur = 0;
         }
+    }
+
+    drawCustomers() {
+        const ctx = this.ctx;
+
+        for (const customer of this.customers) {
+            ctx.save();
+
+            // Apply hue-rotation filter for color variety
+            ctx.filter = `hue-rotate(${customer.colorHue}deg)`;
+
+            // Get customer sprite
+            const img = customer.sprite;
+
+            // Calculate draw dimensions (maintain aspect ratio)
+            const aspectRatio = img.width / img.height;
+            const drawHeight = customer.height;
+            const drawWidth = drawHeight * aspectRatio;
+
+            // Flip if facing right
+            if (!customer.facingLeft) {
+                ctx.translate(customer.x + drawWidth, customer.y);
+                ctx.scale(-1, 1);
+                ctx.drawImage(img, 0, 0, drawWidth, drawHeight);
+            } else {
+                ctx.drawImage(img, customer.x, customer.y, drawWidth, drawHeight);
+            }
+
+            ctx.restore();
+
+            // Draw speech bubble when waiting for service
+            if (customer.state === CustomerState.WAITING_FOR_SERVICE ||
+                customer.state === CustomerState.BEING_SERVED) {
+                this.drawCustomerBubble(customer, ctx);
+            }
+        }
+    }
+
+    drawCustomerBubble(customer, ctx) {
+        const bubbleX = customer.x + customer.width / 2;
+        const bubbleY = customer.y - 30;
+
+        // Bubble background
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+        ctx.beginPath();
+        ctx.ellipse(bubbleX, bubbleY, 25, 18, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Bubble border
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Bubble tail
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+        ctx.beginPath();
+        ctx.moveTo(bubbleX - 5, bubbleY + 15);
+        ctx.lineTo(bubbleX, bubbleY + 25);
+        ctx.lineTo(bubbleX + 5, bubbleY + 15);
+        ctx.fill();
+
+        // Request emoji
+        ctx.font = '16px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(customer.request, bubbleX, bubbleY + 5);
     }
 
     drawPlayer() {
