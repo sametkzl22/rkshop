@@ -254,7 +254,7 @@ class Player {
                 this.inventoryValue = 0;
 
                 // Check victory condition
-                if (game.score >= 200) {
+                if (game.score >= 900) {
                     game.gameState = GameState.VICTORY;
                 }
             }
@@ -336,18 +336,25 @@ class Shopkeeper {
             this.visionRange = 0;
             this.visionConeAngle = 0;
 
+            // Initialize random duration if not set
+            if (!this.currentStreamDurationTarget) {
+                this.currentStreamDurationTarget = Math.random() * 10000; // 0-10 seconds
+                // console.log("New Streaming Duration Target:", (this.currentStreamDurationTarget/1000).toFixed(2) + "s");
+            }
+
             // Check for warning (2 seconds before patrol)
-            const timeUntilPatrol = STREAMING_DURATION - this.stateTimer;
+            const timeUntilPatrol = this.currentStreamDurationTarget - this.stateTimer;
             if (timeUntilPatrol <= 2000 && timeUntilPatrol > 0) {
                 this.showWarning = true;
             } else {
                 this.showWarning = false;
             }
 
-            if (this.stateTimer >= STREAMING_DURATION) {
+            if (this.stateTimer >= this.currentStreamDurationTarget) {
                 this.state = ShopkeeperState.PATROLLING;
                 this.stateTimer = 0;
                 this.showWarning = false;
+                this.currentStreamDurationTarget = null; // Reset for next time
                 this.currentWaypoint = Math.floor(Math.random() * this.patrolWaypoints.length);
                 game.addChatMessage("Bi dk bakıyorum...", 'system');
             }
@@ -439,15 +446,18 @@ class Shopkeeper {
 class Customer {
     constructor() {
         // Random sprite selection (man or woman)
-        this.isMale = Math.random() > 0.5;
+        // Explicitly check random value for debugging
+        const rand = Math.random();
+        this.isMale = rand > 0.5;
+        console.log(`Spawned Customer: ${this.isMale ? "Male" : "Female"} (rand: ${rand.toFixed(2)})`);
         this.sprite = this.isMale ? ASSETS.manCustomer : ASSETS.womanCustomer;
 
         // Random hue rotation for color variety (0-360 degrees)
         this.colorHue = Math.floor(Math.random() * 360);
 
-        // Position and dimensions
-        this.width = 50;
-        this.height = 70;
+        // Position and dimensions (2.5x size)
+        this.width = 125;
+        this.height = 175;
 
         // Start from right door (entry point)
         this.x = 780;
@@ -489,12 +499,11 @@ class Customer {
                     this.state = CustomerState.WAITING_FOR_SERVICE;
                     this.waitTimer = 0;
 
-                    // Trigger shopkeeper to serve (if streaming)
-                    if (game.shopkeeper.state === ShopkeeperState.STREAMING) {
-                        game.shopkeeper.state = ShopkeeperState.SERVING;
-                        game.shopkeeper.stateTimer = 0;
-                        game.addChatMessage("Müşteri geldi!", 'system');
-                    }
+                    // Trigger shopkeeper to serve (interrupt patrol if needed)
+                    game.shopkeeper.state = ShopkeeperState.SERVING;
+                    game.shopkeeper.stateTimer = 0;
+                    game.shopkeeper.showWarning = false;
+                    game.addChatMessage("Müşteri geldi!", 'system');
                 }
                 break;
 
@@ -580,8 +589,8 @@ class Game {
         // Customer system
         this.customers = [];
         this.customerSpawnTimer = 0;
-        this.customerSpawnInterval = 15000; // Spawn customer every 15 seconds
-        this.maxCustomers = 2; // Max simultaneous customers
+        this.customerSpawnInterval = 45000; // Spawn customer every 45 seconds
+        this.maxCustomers = 1; // Max simultaneous customers
 
         // ============================================
         // COMBAT SYSTEM
@@ -804,7 +813,7 @@ class Game {
 
         // Detection check - vision based
         if (this.shopkeeper.canSeePlayer(this.player)) {
-            this.alertLevel += 0.8;
+            this.alertLevel = this.maxAlert; // Instant catch!
         } else {
             this.alertLevel = Math.max(0, this.alertLevel - 0.3);
         }
@@ -1281,7 +1290,7 @@ class Game {
         ctx.fillRect(CANVAS_WIDTH - 140, 48, 132, 24);
         ctx.fillStyle = '#AAA';
         ctx.font = '8px "Press Start 2P", monospace';
-        ctx.fillText(`Hedef: ₺200`, CANVAS_WIDTH - 74, 64);
+        ctx.fillText(`Hedef: ₺900`, CANVAS_WIDTH - 74, 64);
 
         // Controls hint
         ctx.fillStyle = 'rgba(0,0,0,0.7)';
