@@ -53,29 +53,28 @@ let assetsLoaded = 0;
 const totalAssets = 5;
 
 // ============================================
-// STEAL ZONES (coordinated with rkdükkan.png 1344x768)
-// Scaled to 800x600 canvas
+// STEAL ZONES - Accessible lower shelf positions
 // ============================================
 const STEAL_ZONES = [
-    // Back shelves (top area) - scaled from original coords
-    { id: 'cikolata', name: 'Çikolata', x: 520, y: 80, w: 100, h: 60, value: 50, emoji: '🍫' },
-    { id: 'biskuvi', name: 'Bisküvi', x: 380, y: 80, w: 100, h: 60, value: 35, emoji: '🍪' },
-    { id: 'konserve', name: 'Konserve', x: 240, y: 80, w: 100, h: 60, value: 25, emoji: '🥫' },
+    // Mid-level shelves - accessible Y coordinates
+    { id: 'cikolata', name: 'Çikolata', x: 520, y: 280, w: 100, h: 60, value: 50, emoji: '🍫' },
+    { id: 'biskuvi', name: 'Bisküvi', x: 380, y: 280, w: 100, h: 60, value: 35, emoji: '🍪' },
+    { id: 'konserve', name: 'Konserve', x: 240, y: 280, w: 100, h: 60, value: 25, emoji: '🥫' },
 
     // Left shelf (side area)
-    { id: 'icecek', name: 'İçecek', x: 40, y: 200, w: 60, h: 120, value: 30, emoji: '🥤' },
+    { id: 'icecek', name: 'İçecek', x: 40, y: 350, w: 60, h: 100, value: 30, emoji: '🥤' },
 
-    // Display stands (floor area)
-    { id: 'cips', name: 'Cips', x: 450, y: 320, w: 100, h: 80, value: 40, emoji: '🍿' },
-    { id: 'seker', name: 'Şeker', x: 300, y: 450, w: 120, h: 70, value: 20, emoji: '🍬' }
+    // Floor display stands
+    { id: 'cips', name: 'Cips', x: 450, y: 420, w: 100, h: 80, value: 40, emoji: '🍿' },
+    { id: 'seker', name: 'Şeker', x: 300, y: 480, w: 120, h: 70, value: 20, emoji: '🍬' }
 ];
 
-// EXIT ZONE - Left side (door area)
+// EXIT ZONE - Right side (door area)
 const EXIT_ZONE = {
-    x: 0,
-    y: 350,
-    w: 60,
-    h: 200,
+    x: 720,
+    y: 380,
+    w: 80,
+    h: 180,
     name: 'Çıkış'
 };
 
@@ -107,7 +106,8 @@ class Player {
         this.y = y;
         this.width = 60;
         this.height = 80;
-        this.speed = 3.5;
+        this.baseSpeed = 3.5;
+        this.speed = this.baseSpeed;
         this.state = PlayerState.IDLE;
 
         // Collision box (feet area)
@@ -116,21 +116,33 @@ class Player {
         this.collisionOffsetX = (this.width - this.collisionWidth) / 2;
         this.collisionOffsetY = this.height - this.collisionHeight;
 
-        // Inventory system - items collected but not yet scored
+        // Inventory system - items collected but not yet scored (max 3)
         this.inventory = [];
-        this.inventoryValue = 0;  // Total value in bag
+        this.inventoryValue = 0;
+        this.maxInventory = 3;
 
         this.stealProgress = 0;
-        this.stealTime = 1500;  // 1.5 seconds to steal
+        this.stealTime = 1500;
         this.targetZone = null;
         this.isMoving = false;
         this.facingLeft = false;
 
-        this.keys = { up: false, down: false, left: false, right: false, space: false };
+        // Sneaking mechanic (Shift key)
+        this.isSneaking = false;
+        this.isRunning = false;
+
+        this.keys = { up: false, down: false, left: false, right: false, space: false, shift: false };
     }
 
     update(game) {
         this.isMoving = false;
+        this.isSneaking = this.keys.shift;
+
+        // Calculate speed with bag weight penalty (10% per item, max 3 items)
+        const bagPenalty = Math.min(this.inventory.length, this.maxInventory) * 0.1;
+        const sneakMultiplier = this.isSneaking ? 0.5 : 1;
+        this.speed = this.baseSpeed * (1 - bagPenalty) * sneakMultiplier;
+
         let dx = 0, dy = 0;
 
         if (this.keys.up) dy -= this.speed;
@@ -140,6 +152,8 @@ class Player {
 
         if (dx !== 0 || dy !== 0) {
             this.isMoving = true;
+            this.isRunning = !this.isSneaking;
+
             if (this.state !== PlayerState.STEALING) {
                 this.state = PlayerState.WALKING;
             }
@@ -158,6 +172,8 @@ class Player {
             // Clamp to canvas bounds
             this.x = Math.max(0, Math.min(CANVAS_WIDTH - this.width, this.x));
             this.y = Math.max(120, Math.min(CANVAS_HEIGHT - this.height - 20, this.y));
+        } else {
+            this.isRunning = false;
         }
 
         // Stealing mechanic
@@ -251,33 +267,99 @@ class Shopkeeper {
     constructor(x, y) {
         this.x = x;
         this.y = y;
+        this.startX = x;
+        this.startY = y;
         this.width = 100;
         this.height = 130;
         this.state = ShopkeeperState.STREAMING;
         this.stateTimer = 0;
         this.visionAngle = 0;
-        this.visionRange = 180;
-        this.visionConeAngle = Math.PI / 3;
+        this.visionRange = 0;
+        this.visionConeAngle = 0;
+
+        // Patrol system with 4 waypoints
+        this.patrolWaypoints = [
+            { x: 400, y: 350 },  // Center floor
+            { x: 600, y: 400 },  // Near right shelves
+            { x: 200, y: 450 },  // Near left shelves
+            { x: 500, y: 280 }   // Near back shelves
+        ];
+        this.currentWaypoint = 0;
+        this.patrolSpeed = 1.5;
+        this.facingAngle = Math.PI / 2;  // Facing down by default
+        this.lookTimer = 0;
+        this.isLooking = false;
+
+        // Warning system
+        this.showWarning = false;
+        this.warningTimer = 0;
     }
 
     update(deltaTime, game) {
         this.stateTimer += deltaTime;
 
         if (this.state === ShopkeeperState.STREAMING) {
-            this.visionRange = 100;
-            this.visionConeAngle = Math.PI / 8;
+            // STREAMING: Zero vision - fully focused on stream
+            this.visionRange = 0;
+            this.visionConeAngle = 0;
+
+            // Check for warning (2 seconds before patrol)
+            const timeUntilPatrol = STREAMING_DURATION - this.stateTimer;
+            if (timeUntilPatrol <= 2000 && timeUntilPatrol > 0) {
+                this.showWarning = true;
+            } else {
+                this.showWarning = false;
+            }
 
             if (this.stateTimer >= STREAMING_DURATION) {
                 this.state = ShopkeeperState.PATROLLING;
                 this.stateTimer = 0;
+                this.showWarning = false;
+                this.currentWaypoint = Math.floor(Math.random() * this.patrolWaypoints.length);
                 game.addChatMessage("Bi dk bakıyorum...", 'system');
             }
         } else {
+            // PATROLLING: Active vision and movement
             this.visionRange = 250;
             this.visionConeAngle = Math.PI / 2;
-            this.visionAngle += 0.02;
+            this.showWarning = false;
+
+            // Move towards current waypoint
+            const target = this.patrolWaypoints[this.currentWaypoint];
+            const dx = target.x - this.x;
+            const dy = target.y - this.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance > 10) {
+                // Move towards waypoint
+                this.x += (dx / distance) * this.patrolSpeed;
+                this.y += (dy / distance) * this.patrolSpeed;
+
+                // Update facing angle towards movement direction
+                this.facingAngle = Math.atan2(dy, dx);
+                this.visionAngle = this.facingAngle;
+                this.isLooking = false;
+                this.lookTimer = 0;
+            } else {
+                // Arrived at waypoint - look around
+                this.isLooking = true;
+                this.lookTimer += deltaTime;
+
+                // Scan by rotating vision
+                this.visionAngle += 0.03;
+                this.facingAngle = this.visionAngle;
+
+                // Stay at waypoint for 1.5 seconds, then move to next
+                if (this.lookTimer >= 1500) {
+                    this.currentWaypoint = Math.floor(Math.random() * this.patrolWaypoints.length);
+                    this.lookTimer = 0;
+                }
+            }
 
             if (this.stateTimer >= PATROLLING_DURATION) {
+                // Return to counter position
+                this.x = this.startX;
+                this.y = this.startY;
                 this.state = ShopkeeperState.STREAMING;
                 this.stateTimer = 0;
                 game.addChatMessage("Devam ediyoruz!", 'system');
@@ -286,6 +368,9 @@ class Shopkeeper {
     }
 
     canSeePlayer(player) {
+        // No vision during streaming
+        if (this.visionRange === 0) return false;
+
         const dx = player.getCenterX() - (this.x + this.width / 2);
         const dy = player.getCenterY() - (this.y + this.height / 2);
         const distance = Math.sqrt(dx * dx + dy * dy);
@@ -293,8 +378,7 @@ class Shopkeeper {
         if (distance > this.visionRange) return false;
 
         const angleToPlayer = Math.atan2(dy, dx);
-        let baseAngle = this.state === ShopkeeperState.STREAMING ? Math.PI / 2 : this.visionAngle;
-        let angleDiff = Math.abs(angleToPlayer - baseAngle);
+        let angleDiff = Math.abs(angleToPlayer - this.visionAngle);
 
         if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
 
@@ -319,8 +403,8 @@ class Game {
         this.alertLevel = 0;
         this.maxAlert = 100;
 
-        // Player starts near entrance (right side)
-        this.player = new Player(700, 450);
+        // Player starts at right door entrance
+        this.player = new Player(750, 500);
         // Shopkeeper behind counter
         this.shopkeeper = new Shopkeeper(200, 180);
 
@@ -396,6 +480,7 @@ class Game {
         if (key === 'arrowleft' || key === 'a') this.player.keys.left = true;
         if (key === 'arrowright' || key === 'd') this.player.keys.right = true;
         if (key === ' ') { e.preventDefault(); this.player.keys.space = true; }
+        if (key === 'shift') this.player.keys.shift = true;
     }
 
     handleKeyUp(e) {
@@ -405,13 +490,14 @@ class Game {
         if (key === 'arrowleft' || key === 'a') this.player.keys.left = false;
         if (key === 'arrowright' || key === 'd') this.player.keys.right = false;
         if (key === ' ') this.player.keys.space = false;
+        if (key === 'shift') this.player.keys.shift = false;
     }
 
     restart() {
         this.gameState = GameState.PLAYING;
         this.score = 0;
         this.alertLevel = 0;
-        this.player = new Player(700, 450);
+        this.player = new Player(750, 500);
         this.shopkeeper = new Shopkeeper(200, 180);
         this.chatMessages = [];
         this.addChatMessage("Yayın başladı!", 'system');
@@ -447,7 +533,7 @@ class Game {
         this.player.update(this);
         this.shopkeeper.update(deltaTime, this);
 
-        // Detection check
+        // Detection check - vision based
         if (this.shopkeeper.canSeePlayer(this.player)) {
             this.alertLevel += 0.8;
             if (this.alertLevel >= this.maxAlert) {
@@ -455,6 +541,14 @@ class Game {
             }
         } else {
             this.alertLevel = Math.max(0, this.alertLevel - 0.3);
+        }
+
+        // Noise mechanic - running without Shift increases alert during patrol
+        if (this.player.isRunning && this.shopkeeper.state === ShopkeeperState.PATROLLING) {
+            this.alertLevel += 0.15;  // Slower increase from noise
+            if (this.alertLevel >= this.maxAlert) {
+                this.gameState = GameState.GAME_OVER;
+            }
         }
 
         // Random chat
@@ -580,6 +674,25 @@ class Game {
             drawWidth,
             drawHeight
         );
+
+        // Draw warning indicator (!) when about to patrol
+        if (s.showWarning) {
+            const warningX = s.x + s.width / 2 + marginStart;
+            const warningY = s.y - 20;
+            const pulse = 0.7 + Math.sin(this.frameCount * 0.2) * 0.3;
+
+            // Yellow exclamation mark with pulsing effect
+            ctx.fillStyle = `rgba(255, 220, 0, ${pulse})`;
+            ctx.font = 'bold 32px "Press Start 2P", monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('!', warningX, warningY);
+
+            // Glow effect
+            ctx.shadowColor = '#FFD700';
+            ctx.shadowBlur = 15;
+            ctx.fillText('!', warningX, warningY);
+            ctx.shadowBlur = 0;
+        }
     }
 
     drawPlayer() {
@@ -728,7 +841,7 @@ class Game {
         ctx.fillStyle = '#AAA';
         ctx.font = '8px "Press Start 2P", monospace';
         ctx.textAlign = 'left';
-        ctx.fillText("WASD:Hareket SPACE:Çal ÇIKIŞ:Skoru al", 14, CANVAS_HEIGHT - 12);
+        ctx.fillText("WASD:Hareket SHIFT:Sessiz SPACE:Çal", 14, CANVAS_HEIGHT - 12);
     }
 
     drawStealProgress() {
