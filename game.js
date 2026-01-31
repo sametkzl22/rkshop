@@ -1,6 +1,6 @@
 /**
- * Streamer Bakkal - VISUAL OVERHAUL EDITION
- * Using reference images as texture atlases for authentic pixel art rendering
+ * Streamer Bakkal - TOPLA-KAÇ Edition
+ * 2nd-gen stealth mechanics with dynamic assets and Exit Zone scoring
  */
 
 // ============================================
@@ -28,40 +28,56 @@ const PlayerState = {
 };
 
 // Timing constants
-const STREAMING_DURATION = 30000;
-const PATROLLING_DURATION = 10000;
+const STREAMING_DURATION = 25000;  // 25 seconds streaming
+const PATROLLING_DURATION = 8000;  // 8 seconds patrolling
 
 // ============================================
 // ASSET LOADING SYSTEM
 // ============================================
 const ASSETS = {
-    sceneStreaming: new Image(),
-    sceneStore: new Image(),
-    shopkeeperFull: new Image(),
+    // Background
+    dukkan: new Image(),
+
+    // Player sprites
+    cocukIdle: new Image(),
+    cocukStealing: new Image(),
+
+    // Shopkeeper sprites
+    bekciPatrol: new Image(),
+    bekciStreaming: new Image(),
+
     loaded: false
 };
 
 let assetsLoaded = 0;
-const totalAssets = 3;
+const totalAssets = 5;
 
 // ============================================
-// SPRITE SLICE DEFINITIONS (from reference images)
+// STEAL ZONES (coordinated with rkdükkan.png 1344x768)
+// Scaled to 800x600 canvas
 // ============================================
-const SPRITES = {
-    // From scene_streaming.jpg (848x1024 pixels)
-    // Kid is at bottom-right corner
-    KID_STEALING: { img: 'sceneStreaming', sx: 660, sy: 800, sw: 140, sh: 195 },
-
-    // From scene_store.png (1024x585 pixels) - used as full background
-    FULL_BACKGROUND: { img: 'sceneStore', sx: 0, sy: 0, sw: 1024, sh: 585 }
-};
-
-// Steal zones
 const STEAL_ZONES = [
-    { id: 'chocolate', name: 'Çikolata', x: 580, y: 450, w: 100, h: 80, value: 50, emoji: '🍫' },
-    { id: 'drinks', name: 'İçecek', x: 100, y: 400, w: 120, h: 100, value: 30, emoji: '🥤' },
-    { id: 'chips', name: 'Cips', x: 350, y: 480, w: 120, h: 80, value: 40, emoji: '🍿' }
+    // Back shelves (top area) - scaled from original coords
+    { id: 'cikolata', name: 'Çikolata', x: 520, y: 80, w: 100, h: 60, value: 50, emoji: '🍫' },
+    { id: 'biskuvi', name: 'Bisküvi', x: 380, y: 80, w: 100, h: 60, value: 35, emoji: '🍪' },
+    { id: 'konserve', name: 'Konserve', x: 240, y: 80, w: 100, h: 60, value: 25, emoji: '🥫' },
+
+    // Left shelf (side area)
+    { id: 'icecek', name: 'İçecek', x: 40, y: 200, w: 60, h: 120, value: 30, emoji: '🥤' },
+
+    // Display stands (floor area)
+    { id: 'cips', name: 'Cips', x: 450, y: 320, w: 100, h: 80, value: 40, emoji: '🍿' },
+    { id: 'seker', name: 'Şeker', x: 300, y: 450, w: 120, h: 70, value: 20, emoji: '🍬' }
 ];
+
+// EXIT ZONE - Left side (door area)
+const EXIT_ZONE = {
+    x: 0,
+    y: 350,
+    w: 60,
+    h: 200,
+    name: 'Çıkış'
+};
 
 // Chat messages
 const STEALTH_CHAT = [
@@ -89,9 +105,9 @@ class Player {
     constructor(x, y) {
         this.x = x;
         this.y = y;
-        this.width = 50;
-        this.height = 70;
-        this.speed = 3;
+        this.width = 60;
+        this.height = 80;
+        this.speed = 3.5;
         this.state = PlayerState.IDLE;
 
         // Collision box (feet area)
@@ -100,9 +116,12 @@ class Player {
         this.collisionOffsetX = (this.width - this.collisionWidth) / 2;
         this.collisionOffsetY = this.height - this.collisionHeight;
 
+        // Inventory system - items collected but not yet scored
         this.inventory = [];
+        this.inventoryValue = 0;  // Total value in bag
+
         this.stealProgress = 0;
-        this.stealTime = 2000;
+        this.stealTime = 1500;  // 1.5 seconds to steal
         this.targetZone = null;
         this.isMoving = false;
         this.facingLeft = false;
@@ -121,7 +140,9 @@ class Player {
 
         if (dx !== 0 || dy !== 0) {
             this.isMoving = true;
-            this.state = PlayerState.WALKING;
+            if (this.state !== PlayerState.STEALING) {
+                this.state = PlayerState.WALKING;
+            }
 
             // Apply movement with collision check
             const newX = this.x + dx;
@@ -135,8 +156,8 @@ class Player {
             }
 
             // Clamp to canvas bounds
-            this.x = Math.max(30, Math.min(CANVAS_WIDTH - this.width - 30, this.x));
-            this.y = Math.max(280, Math.min(CANVAS_HEIGHT - this.height - 20, this.y));
+            this.x = Math.max(0, Math.min(CANVAS_WIDTH - this.width, this.x));
+            this.y = Math.max(120, Math.min(CANVAS_HEIGHT - this.height - 20, this.y));
         }
 
         // Stealing mechanic
@@ -148,21 +169,46 @@ class Player {
                 this.stealProgress += 16.67;
 
                 if (this.stealProgress >= this.stealTime) {
+                    // Add to inventory (NOT to score yet!)
                     this.inventory.push(zone.id);
-                    game.score += zone.value;
-                    game.addChatMessage(`${zone.emoji} çalındı!`, 'system');
+                    this.inventoryValue += zone.value;
+                    game.addChatMessage(`${zone.emoji} çantaya atıldı!`, 'system');
                     this.stealProgress = 0;
                     this.targetZone = null;
-
-                    if (this.inventory.length >= STEAL_ZONES.length) {
-                        game.gameState = GameState.VICTORY;
-                    }
                 }
             }
         } else {
             this.stealProgress = 0;
             this.targetZone = null;
             if (!this.isMoving) this.state = PlayerState.IDLE;
+        }
+
+        // Check Exit Zone - this is where score updates!
+        this.checkEscape(game);
+    }
+
+    checkEscape(game) {
+        // Check if player is in exit zone with items
+        const px = this.x + this.width / 2;
+        const py = this.y + this.height / 2;
+
+        if (px > EXIT_ZONE.x && px < EXIT_ZONE.x + EXIT_ZONE.w &&
+            py > EXIT_ZONE.y && py < EXIT_ZONE.y + EXIT_ZONE.h) {
+
+            if (this.inventory.length > 0) {
+                // Cash out! Transfer inventory value to score
+                game.score += this.inventoryValue;
+                game.addChatMessage(`💰 ${this.inventoryValue} TL kazanıldı!`, 'donation');
+
+                // Clear inventory
+                this.inventory = [];
+                this.inventoryValue = 0;
+
+                // Check victory condition
+                if (game.score >= 200) {
+                    game.gameState = GameState.VICTORY;
+                }
+            }
         }
     }
 
@@ -205,12 +251,12 @@ class Shopkeeper {
     constructor(x, y) {
         this.x = x;
         this.y = y;
-        this.width = 80;
-        this.height = 120;
+        this.width = 100;
+        this.height = 130;
         this.state = ShopkeeperState.STREAMING;
         this.stateTimer = 0;
         this.visionAngle = 0;
-        this.visionRange = 200;
+        this.visionRange = 180;
         this.visionConeAngle = Math.PI / 3;
     }
 
@@ -218,16 +264,16 @@ class Shopkeeper {
         this.stateTimer += deltaTime;
 
         if (this.state === ShopkeeperState.STREAMING) {
-            this.visionRange = 120;
-            this.visionConeAngle = Math.PI / 6;
+            this.visionRange = 100;
+            this.visionConeAngle = Math.PI / 8;
 
             if (this.stateTimer >= STREAMING_DURATION) {
                 this.state = ShopkeeperState.PATROLLING;
                 this.stateTimer = 0;
-                game.addChatMessage("Bakıyorum bi dk", 'system');
+                game.addChatMessage("Bi dk bakıyorum...", 'system');
             }
         } else {
-            this.visionRange = 280;
+            this.visionRange = 250;
             this.visionConeAngle = Math.PI / 2;
             this.visionAngle += 0.02;
 
@@ -269,18 +315,18 @@ class Game {
         this.ctx.imageSmoothingEnabled = false;
 
         this.gameState = GameState.LOADING;
-        this.score = 0;
+        this.score = 0;  // Only updates when exiting with items!
         this.alertLevel = 0;
         this.maxAlert = 100;
 
-        this.player = new Player(650, 480);
-        this.shopkeeper = new Shopkeeper(280, 180);
+        // Player starts near entrance (right side)
+        this.player = new Player(700, 450);
+        // Shopkeeper behind counter
+        this.shopkeeper = new Shopkeeper(200, 180);
 
         // Obstacles for collision
         this.obstacles = [
-            { x: 150, y: 220, w: 280, h: 100 },  // Counter
-            { x: 80, y: 380, w: 130, h: 100 },   // Left display
-            { x: 580, y: 380, w: 130, h: 100 }   // Right display
+            { x: 130, y: 200, w: 200, h: 80 }  // Counter
         ];
 
         this.chatMessages = [];
@@ -312,17 +358,25 @@ class Game {
             console.error('Failed to load asset:', e.target.src);
         };
 
-        ASSETS.sceneStreaming.onload = onLoad;
-        ASSETS.sceneStore.onload = onLoad;
-        ASSETS.shopkeeperFull.onload = onLoad;
+        // Set up load handlers
+        ASSETS.dukkan.onload = onLoad;
+        ASSETS.cocukIdle.onload = onLoad;
+        ASSETS.cocukStealing.onload = onLoad;
+        ASSETS.bekciPatrol.onload = onLoad;
+        ASSETS.bekciStreaming.onload = onLoad;
 
-        ASSETS.sceneStreaming.onerror = onError;
-        ASSETS.sceneStore.onerror = onError;
-        ASSETS.shopkeeperFull.onerror = onError;
+        ASSETS.dukkan.onerror = onError;
+        ASSETS.cocukIdle.onerror = onError;
+        ASSETS.cocukStealing.onerror = onError;
+        ASSETS.bekciPatrol.onerror = onError;
+        ASSETS.bekciStreaming.onerror = onError;
 
-        ASSETS.sceneStreaming.src = 'assets/scene_streaming.jpg';
-        ASSETS.sceneStore.src = 'assets/scene_store.png';
-        ASSETS.shopkeeperFull.src = 'assets/shopkeeper_full.png';
+        // Load assets with URL-encoded paths for Turkish characters
+        ASSETS.dukkan.src = 'assets/rkd%C3%BCkkan.png';
+        ASSETS.cocukIdle.src = 'assets/%C3%A7ocuk.png';
+        ASSETS.cocukStealing.src = 'assets/kidcalarken.jpg';
+        ASSETS.bekciPatrol.src = 'assets/rkbekci-front.png';
+        ASSETS.bekciStreaming.src = 'assets/rkyay%C4%B1nda.png';
     }
 
     setupEventListeners() {
@@ -357,8 +411,8 @@ class Game {
         this.gameState = GameState.PLAYING;
         this.score = 0;
         this.alertLevel = 0;
-        this.player = new Player(650, 480);
-        this.shopkeeper = new Shopkeeper(280, 180);
+        this.player = new Player(700, 450);
+        this.shopkeeper = new Shopkeeper(200, 180);
         this.chatMessages = [];
         this.addChatMessage("Yayın başladı!", 'system');
     }
@@ -395,12 +449,12 @@ class Game {
 
         // Detection check
         if (this.shopkeeper.canSeePlayer(this.player)) {
-            this.alertLevel += 0.5;
+            this.alertLevel += 0.8;
             if (this.alertLevel >= this.maxAlert) {
                 this.gameState = GameState.GAME_OVER;
             }
         } else {
-            this.alertLevel = Math.max(0, this.alertLevel - 0.2);
+            this.alertLevel = Math.max(0, this.alertLevel - 0.3);
         }
 
         // Random chat
@@ -412,7 +466,7 @@ class Game {
     }
 
     // ============================================
-    // SPRITE-BASED RENDERING (from reference images)
+    // RENDERING WITH DYNAMIC ASSETS
     // ============================================
 
     render() {
@@ -420,13 +474,19 @@ class Game {
 
         if (!ASSETS.loaded) return;
 
-        // Draw background first
+        // Draw environment (background)
         this.drawEnvironment();
 
-        // Draw shopkeeper (depends on state)
+        // Draw exit zone indicator
+        this.drawExitZone();
+
+        // Draw steal zone highlights (debug/gameplay aid)
+        this.drawStealZones();
+
+        // Draw shopkeeper (state-based sprite)
         this.drawShopkeeper();
 
-        // Draw player (kid)
+        // Draw player (state-based sprite)
         this.drawPlayer();
 
         // Draw vision cone
@@ -441,114 +501,82 @@ class Game {
         }
     }
 
-    drawSprite(spriteKey, destX, destY, destW = null, destH = null, flipH = false) {
-        const sprite = SPRITES[spriteKey];
-        if (!sprite) return;
-
-        const img = ASSETS[sprite.img];
-        if (!img) return;
-
-        const dw = destW || sprite.sw;
-        const dh = destH || sprite.sh;
-
-        this.ctx.save();
-
-        if (flipH) {
-            this.ctx.translate(destX + dw, destY);
-            this.ctx.scale(-1, 1);
-            this.ctx.drawImage(img, sprite.sx, sprite.sy, sprite.sw, sprite.sh, 0, 0, dw, dh);
-        } else {
-            this.ctx.drawImage(img, sprite.sx, sprite.sy, sprite.sw, sprite.sh, destX, destY, dw, dh);
-        }
-
-        this.ctx.restore();
-    }
-
     drawEnvironment() {
-        // Draw the full store background from scene_store.png
-        // Scale to fit canvas while maintaining aspect ratio
-        const img = ASSETS.sceneStore;
-        const scale = Math.max(CANVAS_WIDTH / img.width, CANVAS_HEIGHT / img.height);
-        const scaledW = img.width * scale;
-        const scaledH = img.height * scale;
-        const offsetX = (CANVAS_WIDTH - scaledW) / 2;
-        const offsetY = (CANVAS_HEIGHT - scaledH) / 2;
+        // Draw the full store background from rkdükkan.png
+        const img = ASSETS.dukkan;
 
-        this.ctx.drawImage(img, offsetX, offsetY, scaledW, scaledH);
-
-        // If streaming, overlay the laptop glow area
-        if (this.shopkeeper.state === ShopkeeperState.STREAMING) {
-            this.drawLaptopGlow();
-        }
+        // Scale to fit canvas (1344x768 -> 800x600)
+        this.ctx.drawImage(img, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
     }
 
-    drawLaptopGlow() {
-        // Draw pulsing green glow effect for the laptop
-        const glowIntensity = 0.4 + Math.sin(this.frameCount * 0.1) * 0.2;
-        const centerX = 340;
-        const centerY = 275;
-        const glowRadius = 80;
+    drawExitZone() {
+        const ctx = this.ctx;
+        const zone = EXIT_ZONE;
 
-        const gradient = this.ctx.createRadialGradient(
-            centerX, centerY, 0,
-            centerX, centerY, glowRadius
-        );
-        gradient.addColorStop(0, `rgba(80, 255, 120, ${glowIntensity})`);
-        gradient.addColorStop(0.4, `rgba(60, 200, 100, ${glowIntensity * 0.6})`);
-        gradient.addColorStop(1, 'rgba(40, 150, 80, 0)');
+        // Pulsing green glow for exit
+        const pulse = 0.3 + Math.sin(this.frameCount * 0.1) * 0.15;
 
-        this.ctx.fillStyle = gradient;
-        this.ctx.beginPath();
-        this.ctx.ellipse(centerX, centerY, glowRadius, glowRadius * 0.6, 0, 0, Math.PI * 2);
-        this.ctx.fill();
+        ctx.fillStyle = `rgba(50, 255, 100, ${pulse})`;
+        ctx.fillRect(zone.x, zone.y, zone.w, zone.h);
+
+        // Border
+        ctx.strokeStyle = '#32FF64';
+        ctx.lineWidth = 3;
+        ctx.setLineDash([5, 5]);
+        ctx.strokeRect(zone.x, zone.y, zone.w, zone.h);
+        ctx.setLineDash([]);
+
+        // Label
+        ctx.fillStyle = '#FFF';
+        ctx.font = 'bold 10px "Press Start 2P", monospace';
+        ctx.textAlign = 'center';
+        ctx.save();
+        ctx.translate(zone.x + zone.w / 2, zone.y + zone.h / 2);
+        ctx.rotate(-Math.PI / 2);
+        ctx.fillText('ÇIKIŞ', 0, 0);
+        ctx.restore();
+    }
+
+    drawStealZones() {
+        const ctx = this.ctx;
+
+        for (const zone of STEAL_ZONES) {
+            // Check if already stolen
+            const stolen = this.player.inventory.includes(zone.id);
+
+            if (!stolen) {
+                // Subtle highlight for steal zones
+                ctx.fillStyle = 'rgba(255, 200, 50, 0.15)';
+                ctx.fillRect(zone.x, zone.y, zone.w, zone.h);
+            }
+        }
     }
 
     drawShopkeeper() {
-        // The shopkeeper sprite is already part of the background image (scene_store.png)
-        // We only need to draw overlays: speech bubble for streaming mode
+        const ctx = this.ctx;
         const s = this.shopkeeper;
 
+        // Select sprite based on state
+        let img;
         if (s.state === ShopkeeperState.STREAMING) {
-            // Draw "Streaming LIVE!" speech bubble above shopkeeper
-            this.drawSpeechBubble(350, 95);
+            img = ASSETS.bekciStreaming;
+        } else {
+            img = ASSETS.bekciPatrol;
         }
-    }
 
-    drawSpeechBubble(x, y) {
-        const ctx = this.ctx;
-        const text = this.shopkeeper.state === ShopkeeperState.STREAMING ? "Streaming\nLIVE!" : "Hmm...";
+        // Calculate draw dimensions (maintain aspect ratio)
+        const aspectRatio = img.width / img.height;
+        const drawHeight = s.height;
+        const drawWidth = drawHeight * aspectRatio;
 
-        // Draw bubble background
-        ctx.fillStyle = '#FFFFFF';
-        ctx.strokeStyle = '#000000';
-        ctx.lineWidth = 2;
-
-        const bubbleW = 100;
-        const bubbleH = 50;
-
-        ctx.beginPath();
-        ctx.roundRect(x, y, bubbleW, bubbleH, 8);
-        ctx.fill();
-        ctx.stroke();
-
-        // Bubble tail
-        ctx.beginPath();
-        ctx.moveTo(x + 20, y + bubbleH);
-        ctx.lineTo(x + 10, y + bubbleH + 15);
-        ctx.lineTo(x + 35, y + bubbleH);
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fill();
-        ctx.stroke();
-
-        // Text
-        ctx.fillStyle = '#000000';
-        ctx.font = 'bold 11px "Press Start 2P", monospace';
-        ctx.textAlign = 'center';
-        ctx.fillText("Streaming", x + bubbleW / 2, y + 20);
-
-        ctx.fillStyle = '#FF0000';
-        ctx.font = 'bold 14px "Press Start 2P", monospace';
-        ctx.fillText("LIVE!", x + bubbleW / 2, y + 38);
+        // Draw the shopkeeper sprite
+        ctx.drawImage(
+            img,
+            s.x - (drawWidth - s.width) / 2,
+            s.y,
+            drawWidth,
+            drawHeight
+        );
     }
 
     drawPlayer() {
@@ -556,71 +584,68 @@ class Game {
         const p = this.player;
         const bob = Math.sin(this.frameCount * 0.15) * (p.isMoving ? 3 : 1);
 
-        // Draw the kid sprite from the reference image
-        const sprite = SPRITES.KID_STEALING;
-        const img = ASSETS.sceneStreaming;
+        // Select sprite based on state
+        let img;
+        if (p.state === PlayerState.STEALING) {
+            img = ASSETS.cocukStealing;
+        } else {
+            img = ASSETS.cocukIdle;
+        }
 
-        const destW = 60;
-        const destH = 85;
-        const destX = p.x;
-        const destY = p.y + bob;
+        // Calculate draw dimensions (maintain aspect ratio)
+        const aspectRatio = img.width / img.height;
+        const drawHeight = p.height;
+        const drawWidth = drawHeight * aspectRatio;
 
         ctx.save();
 
         // Flip if facing left
         if (p.facingLeft) {
-            ctx.translate(destX + destW, destY);
+            ctx.translate(p.x + drawWidth, p.y + bob);
             ctx.scale(-1, 1);
-            ctx.drawImage(
-                img,
-                sprite.sx, sprite.sy, sprite.sw, sprite.sh,
-                0, 0, destW, destH
-            );
+            ctx.drawImage(img, 0, 0, drawWidth, drawHeight);
         } else {
-            ctx.drawImage(
-                img,
-                sprite.sx, sprite.sy, sprite.sw, sprite.sh,
-                destX, destY, destW, destH
-            );
+            ctx.drawImage(img, p.x, p.y + bob, drawWidth, drawHeight);
         }
 
         ctx.restore();
 
-        // Draw green glow around player for visibility
-        this.drawPlayerGlow(p.x + destW / 2, p.y + destH / 2);
+        // Draw inventory indicator above player if carrying items
+        if (p.inventory.length > 0) {
+            this.drawInventoryBubble(p.x + drawWidth / 2, p.y - 10);
+        }
     }
 
-    drawPlayerGlow(centerX, centerY) {
-        const glowIntensity = 0.25 + Math.sin(this.frameCount * 0.08) * 0.1;
-        const glowRadius = 45;
+    drawInventoryBubble(x, y) {
+        const ctx = this.ctx;
+        const items = this.player.inventory.length;
+        const value = this.player.inventoryValue;
 
-        const gradient = this.ctx.createRadialGradient(
-            centerX, centerY, 0,
-            centerX, centerY, glowRadius
-        );
-        gradient.addColorStop(0, `rgba(100, 255, 150, ${glowIntensity})`);
-        gradient.addColorStop(0.5, `rgba(60, 200, 100, ${glowIntensity * 0.4})`);
-        gradient.addColorStop(1, 'rgba(40, 150, 80, 0)');
+        // Bag icon with count
+        ctx.fillStyle = 'rgba(0,0,0,0.8)';
+        ctx.beginPath();
+        ctx.roundRect(x - 35, y - 25, 70, 25, 5);
+        ctx.fill();
 
-        this.ctx.fillStyle = gradient;
-        this.ctx.beginPath();
-        this.ctx.arc(centerX, centerY, glowRadius, 0, Math.PI * 2);
-        this.ctx.fill();
+        ctx.fillStyle = '#FFF';
+        ctx.font = '10px "Press Start 2P", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(`🎒${items} (₺${value})`, x, y - 8);
     }
 
     drawVisionCone() {
         const ctx = this.ctx;
         const s = this.shopkeeper;
 
-        const centerX = s.getCenterX() + 30;
-        const centerY = s.getCenterY() + 40;
+        const centerX = s.getCenterX();
+        const centerY = s.getCenterY() + 30;
 
         let baseAngle = s.state === ShopkeeperState.STREAMING ? Math.PI / 2 : s.visionAngle;
         const halfCone = s.visionConeAngle / 2;
 
         const color = s.state === ShopkeeperState.STREAMING
-            ? 'rgba(255, 255, 0, 0.12)'
-            : 'rgba(255, 50, 50, 0.18)';
+            ? 'rgba(255, 255, 0, 0.15)'
+            : 'rgba(255, 50, 50, 0.25)';
 
         ctx.beginPath();
         ctx.moveTo(centerX, centerY);
@@ -633,64 +658,74 @@ class Game {
     drawUI() {
         const ctx = this.ctx;
 
-        // Draw UI panel background (from reference or recreated)
-        ctx.fillStyle = 'rgba(30, 35, 45, 0.92)';
-        ctx.fillRect(8, 8, 175, 105);
-        ctx.strokeStyle = '#555';
+        // Main UI panel (top-left)
+        ctx.fillStyle = 'rgba(25, 30, 40, 0.95)';
+        ctx.fillRect(8, 8, 180, 130);
+        ctx.strokeStyle = '#444';
         ctx.lineWidth = 2;
-        ctx.strokeRect(8, 8, 175, 105);
+        ctx.strokeRect(8, 8, 180, 130);
 
-        // Stolen Items header
-        ctx.fillStyle = '#FFFFFF';
-        ctx.font = '14px "Press Start 2P", monospace';
-        ctx.textAlign = 'left';
-        ctx.fillText("Stolen Items:", 18, 30);
-
-        // Stolen count with chocolate icon
-        ctx.font = '20px "Press Start 2P", monospace';
-        ctx.fillText("🍫", 20, 58);
-        ctx.fillStyle = '#FFF';
-        ctx.fillText(String(this.player.inventory.length).padStart(2, '0'), 55, 58);
-
-        // Alert Level header
-        ctx.fillStyle = '#FFFFFF';
-        ctx.font = '12px "Press Start 2P", monospace';
-        ctx.fillText("Alert Level:", 18, 82);
-
-        // Alert bar background
-        ctx.fillStyle = '#333';
-        ctx.fillRect(18, 90, 155, 16);
-
-        // Alert bar fill (red)
-        const alertWidth = (this.alertLevel / this.maxAlert) * 155;
-        ctx.fillStyle = this.alertLevel > 70 ? '#FF3333' : this.alertLevel > 40 ? '#FF9933' : '#CC2222';
-        ctx.fillRect(18, 90, alertWidth, 16);
-
-        // Alert bar border
-        ctx.strokeStyle = '#666';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(18, 90, 155, 16);
-
-        // Score display (top right)
-        ctx.fillStyle = 'rgba(30, 35, 45, 0.9)';
-        ctx.fillRect(CANVAS_WIDTH - 120, 8, 112, 40);
-        ctx.strokeStyle = '#555';
-        ctx.strokeRect(CANVAS_WIDTH - 120, 8, 112, 40);
-
+        // Score (already cashed out)
         ctx.fillStyle = '#4ADE80';
         ctx.font = '10px "Press Start 2P", monospace';
-        ctx.textAlign = 'right';
-        ctx.fillText("SKOR:", CANVAS_WIDTH - 18, 25);
+        ctx.textAlign = 'left';
+        ctx.fillText("Kasada:", 18, 28);
+        ctx.font = '16px "Press Start 2P", monospace';
+        ctx.fillText(`₺${this.score}`, 18, 48);
+
+        // Inventory (in bag, not cashed yet)
+        ctx.fillStyle = '#FFD700';
+        ctx.font = '10px "Press Start 2P", monospace';
+        ctx.fillText("Çantada:", 18, 70);
         ctx.font = '14px "Press Start 2P", monospace';
-        ctx.fillText(this.score.toString(), CANVAS_WIDTH - 18, 42);
+        ctx.fillText(`₺${this.player.inventoryValue}`, 18, 88);
+
+        // Alert Level
+        ctx.fillStyle = '#FFF';
+        ctx.font = '10px "Press Start 2P", monospace';
+        ctx.fillText("Şüphe:", 18, 108);
+
+        // Alert bar
+        ctx.fillStyle = '#333';
+        ctx.fillRect(18, 115, 155, 14);
+
+        const alertWidth = (this.alertLevel / this.maxAlert) * 155;
+        ctx.fillStyle = this.alertLevel > 70 ? '#FF3333' : this.alertLevel > 40 ? '#FF9933' : '#CC2222';
+        ctx.fillRect(18, 115, alertWidth, 14);
+
+        ctx.strokeStyle = '#555';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(18, 115, 155, 14);
+
+        // Mode indicator (top right)
+        const modeText = this.shopkeeper.state === ShopkeeperState.STREAMING ? "YAYINDA 📺" : "İZLİYOR 👀";
+        const modeColor = this.shopkeeper.state === ShopkeeperState.STREAMING ? '#4ADE80' : '#EF4444';
+
+        ctx.fillStyle = 'rgba(25, 30, 40, 0.95)';
+        ctx.fillRect(CANVAS_WIDTH - 140, 8, 132, 35);
+        ctx.strokeStyle = modeColor;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(CANVAS_WIDTH - 140, 8, 132, 35);
+
+        ctx.fillStyle = modeColor;
+        ctx.font = '10px "Press Start 2P", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(modeText, CANVAS_WIDTH - 74, 30);
+
+        // Goal indicator
+        ctx.fillStyle = 'rgba(0,0,0,0.7)';
+        ctx.fillRect(CANVAS_WIDTH - 140, 48, 132, 24);
+        ctx.fillStyle = '#AAA';
+        ctx.font = '8px "Press Start 2P", monospace';
+        ctx.fillText(`Hedef: ₺200`, CANVAS_WIDTH - 74, 64);
 
         // Controls hint
-        ctx.fillStyle = 'rgba(0,0,0,0.6)';
-        ctx.fillRect(8, CANVAS_HEIGHT - 28, 340, 22);
+        ctx.fillStyle = 'rgba(0,0,0,0.7)';
+        ctx.fillRect(8, CANVAS_HEIGHT - 28, 360, 22);
         ctx.fillStyle = '#AAA';
         ctx.font = '8px "Press Start 2P", monospace';
         ctx.textAlign = 'left';
-        ctx.fillText("WASD: Hareket | SPACE: Çal | R: Yeniden", 14, CANVAS_HEIGHT - 12);
+        ctx.fillText("WASD:Hareket SPACE:Çal ÇIKIŞ:Skoru al", 14, CANVAS_HEIGHT - 12);
     }
 
     drawStealProgress() {
@@ -703,20 +738,16 @@ class Game {
         const barW = 80;
         const barH = 12;
 
-        // Background
-        ctx.fillStyle = 'rgba(0,0,0,0.8)';
+        ctx.fillStyle = 'rgba(0,0,0,0.85)';
         ctx.fillRect(barX - 2, barY - 2, barW + 4, barH + 4);
 
-        // Progress fill
-        ctx.fillStyle = '#4ADE80';
+        ctx.fillStyle = '#FFD700';
         ctx.fillRect(barX, barY, barW * progress, barH);
 
-        // Border
         ctx.strokeStyle = '#FFF';
         ctx.lineWidth = 1;
         ctx.strokeRect(barX, barY, barW, barH);
 
-        // Label
         ctx.fillStyle = '#FFF';
         ctx.font = '8px "Press Start 2P", monospace';
         ctx.textAlign = 'center';
@@ -734,7 +765,6 @@ class Game {
         ctx.textAlign = 'center';
         ctx.fillText("Yükleniyor...", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 20);
 
-        // Loading bar
         const barW = 300;
         const barH = 20;
         const barX = (CANVAS_WIDTH - barW) / 2;
@@ -756,7 +786,7 @@ class Game {
     drawEndScreen() {
         const ctx = this.ctx;
 
-        ctx.fillStyle = 'rgba(0,0,0,0.85)';
+        ctx.fillStyle = 'rgba(0,0,0,0.9)';
         ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
         ctx.textAlign = 'center';
@@ -764,24 +794,32 @@ class Game {
         if (this.gameState === GameState.VICTORY) {
             ctx.fillStyle = '#4ADE80';
             ctx.font = '28px "Press Start 2P", monospace';
-            ctx.fillText("KAZANDIN!", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 50);
+            ctx.fillText("KAZANDIN!", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 60);
+
+            ctx.fillStyle = '#FFD700';
+            ctx.font = '18px "Press Start 2P", monospace';
+            ctx.fillText(`Toplam: ₺${this.score}`, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
 
             ctx.fillStyle = '#FFF';
-            ctx.font = '14px "Press Start 2P", monospace';
-            ctx.fillText(`Toplam Çalınan: ${this.score} TL`, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
+            ctx.font = '12px "Press Start 2P", monospace';
+            ctx.fillText("Usta bir hırsız oldun! 🎉", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 40);
         } else {
             ctx.fillStyle = '#EF4444';
             ctx.font = '28px "Press Start 2P", monospace';
-            ctx.fillText("YAKALANDIN!", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 50);
+            ctx.fillText("YAKALANDIN!", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 60);
 
             ctx.fillStyle = '#FFF';
             ctx.font = '14px "Press Start 2P", monospace';
-            ctx.fillText("Dükkan sahibi seni gördü!", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
+            ctx.fillText("Bakkalcı seni gördü!", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
+
+            ctx.fillStyle = '#AAA';
+            ctx.font = '12px "Press Start 2P", monospace';
+            ctx.fillText(`Kaybedilen: ₺${this.player.inventoryValue}`, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 30);
         }
 
-        ctx.fillStyle = '#AAA';
+        ctx.fillStyle = '#888';
         ctx.font = '12px "Press Start 2P", monospace';
-        ctx.fillText("Tekrar için 'R' tuşuna bas", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 60);
+        ctx.fillText("Tekrar için 'R' tuşuna bas", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 80);
     }
 }
 
