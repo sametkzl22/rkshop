@@ -374,7 +374,7 @@ class Game {
         // Load assets with URL-encoded paths for Turkish characters
         ASSETS.dukkan.src = 'assets/rkd%C3%BCkkan.png';
         ASSETS.cocukIdle.src = 'assets/%C3%A7ocuk.png';
-        ASSETS.cocukStealing.src = 'assets/kidcalarken.jpg';
+        ASSETS.cocukStealing.src = 'assets/kidcalarken.png';
         ASSETS.bekciPatrol.src = 'assets/rkbekci-front.png';
         ASSETS.bekciStreaming.src = 'assets/rkyay%C4%B1nda.png';
     }
@@ -569,10 +569,13 @@ class Game {
         const drawHeight = s.height;
         const drawWidth = drawHeight * aspectRatio;
 
-        // Draw the shopkeeper sprite
+        // Margin-start offset for streaming sprite (rkyayında.png)
+        const marginStart = (s.state === ShopkeeperState.STREAMING) ? 45 : 0;
+
+        // Draw the shopkeeper sprite with margin offset
         ctx.drawImage(
             img,
-            s.x - (drawWidth - s.width) / 2,
+            s.x + marginStart,
             s.y,
             drawWidth,
             drawHeight
